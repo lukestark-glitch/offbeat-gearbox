@@ -199,7 +199,7 @@ std::string Core::remoteLive()
     n += std::snprintf(buf + n, sizeof(buf) - n, "],\"mutes\":[");
     for (int t = 0; t < kTracks; ++t)
         n += std::snprintf(buf + n, sizeof(buf) - n, "%s%d", t ? "," : "", (mutes >> t) & 1);
-    std::snprintf(buf + n, sizeof(buf) - n, "]}");
+    std::snprintf(buf + n, sizeof(buf) - n, "],\"revision\":%u}", rev.load()); // Offbeat Performance: /state neu holen
     return buf;
 }
 
@@ -216,7 +216,8 @@ std::string Core::remoteState()
     list += "],\"linked\":[";
     for (int t = 0; t < kTracks; ++t)
         list += (t ? "," : "") + std::to_string(linkedMask[t].load());
-    j.insert(j.size() - 1, list + "]");
+    list += "],\"linkId\":" + std::to_string(linkId);
+    j.insert(j.size() - 1, list);
     return j;
 }
 
