@@ -33,10 +33,19 @@ struct TrackConf { // gilt für alle Patterns
     float volume = 1.0f; // skaliert die Velocity (0–1)
     bool solo = false;
     bool melody = false; // Melodie-Spur: Schritte mit eigenen Tonhöhen/Akkorden (Oberfläche: Tastatur)
+    int synth = 0;       // nur für die Anzeige der Sound-Namen: 0 andere, 1 Engine, 2 Topline
 };
+
+// Sound-Namen (Presets) von Offbeat Engine/Topline in Programm-Reihenfolge – bei neuen Presets dort hier nachtragen
+// (und in src/remote/page.html).
+extern const char* const kEngineSounds[];
+extern const char* const kToplineSounds[];
+extern const int kEngineSoundCount, kToplineSoundCount;
+const char* soundName(int synth, int program); // nullptr = unbekannt
 
 struct PatternTrack {
     int length = 16; // Schrittzahl 1–64 (eigene Länge je Spur → Polymetrik)
+    int program = -1; // Sound (MIDI Program Change 0–127) beim Start des Patterns; -1 = nicht senden
     Step steps[kMaxSteps];
 };
 

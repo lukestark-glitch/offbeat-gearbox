@@ -21,17 +21,18 @@ struct DefaultTrack {
     int note;
     const char* steps;
     bool melody;
+    int synth;
 };
 // Noten wie die Vorschau von Offbeat Engine/Topline (F-Moll, Hard Bounce)
 const DefaultTrack kDefaults[kTracks] = {
-    { "Kick", 29, "X...X...X...X...", false },     // F1 auf jedem Schlag
-    { "Bass", 41, "..x...x...x...x.", true },      // F2 auf dem Offbeat
-    { "Hat", 54, "g.x.g.x.g.x.g.x.", false },      // F#3
-    { "Open Hat", 58, "..........x.....", false },  // A#3
-    { "Stab", 65, "......x.......x.", true },      // F4
-    { "Pad", 53, "................", true },       // F3
-    { "Lead", 77, "................", true },      // F5
-    { "Perc", 49, "................", false },
+    { "Kick", 29, "X...X...X...X...", false, 1 },     // F1 auf jedem Schlag
+    { "Bass", 41, "..x...x...x...x.", true, 1 },      // F2 auf dem Offbeat
+    { "Hat", 54, "g.x.g.x.g.x.g.x.", false, 1 },      // F#3
+    { "Open Hat", 58, "..........x.....", false, 1 },  // A#3
+    { "Stab", 65, "......x.......x.", true, 2 },      // F4
+    { "Pad", 53, "................", true, 2 },       // F3
+    { "Lead", 77, "................", true, 2 },      // F5
+    { "Perc", 49, "................", false, 1 },
 };
 
 int velFromChar(char c)
@@ -56,6 +57,7 @@ bool readTrackConf(TrackConf& t, const JsonValue& v)
     if (const JsonValue* x = v.get("volume"); x && x->type == JsonValue::Number) t.volume = std::clamp((float)x->num, 0.0f, 1.0f);
     if (const JsonValue* x = v.get("solo"); x && x->type == JsonValue::Bool) t.solo = x->b;
     if (const JsonValue* x = v.get("melody"); x && x->type == JsonValue::Bool) t.melody = x->b;
+    if (const JsonValue* x = v.get("synth"); x && x->type == JsonValue::Number) t.synth = std::clamp((int)x->num, 0, 2);
     return true;
 }
 
@@ -71,6 +73,9 @@ bool readPattern(Pattern& p, const JsonValue& v, std::string& err)
         PatternTrack& pt = p.tracks[t];
         if (const JsonValue* x = tv.get("length"); x && x->type == JsonValue::Number)
             pt.length = std::clamp((int)x->num, 1, kMaxSteps);
+        pt.program = -1;
+        if (const JsonValue* x = tv.get("program"); x && x->type == JsonValue::Number)
+            pt.program = std::clamp((int)x->num, -1, 127);
         if (const JsonValue* x = tv.get("steps"); x && x->type == JsonValue::String)
             for (int s = 0; s < kMaxSteps; ++s) {
                 const int vel = s < (int)x->str.size() ? velFromChar(x->str[s]) : kVelOff;
@@ -108,7 +113,7 @@ void writePattern(std::string& o, const Pattern& p)
         for (int s = 0; s < kMaxSteps; ++s)
             steps[s] = kVelChars[pt.steps[s].vel & 3], ties[s] = pt.steps[s].tie ? '~' : '.';
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "%s{\"length\":%d,\"steps\":\"", t ? "," : "", pt.length);
+        std::snprintf(buf, sizeof(buf), "%s{\"length\":%d,\"program\":%d,\"steps\":\"", t ? "," : "", pt.length, pt.program);
         o += buf + steps + "\",\"ties\":\"" + ties + "\"";
         std::string keys;
         for (int s = 0; s < kMaxSteps; ++s)
@@ -141,10 +146,27 @@ void defaultSet(Set& s)
         c.channel = t + 1;
         c.note = kDefaults[t].note;
         c.melody = kDefaults[t].melody;
+        c.synth = kDefaults[t].synth;
         PatternTrack& pt = s.patterns[0].tracks[t];
         for (int k = 0; k < 16; ++k)
             pt.steps[k].vel = (uint8_t)velFromChar(kDefaults[t].steps[k]);
     }
+}
+
+const char* const kEngineSounds[] = { "Kick - Hard Bounce", "Kick - Bounce Soft", "Bass - Offbeat F2", "Bass - Rubber",
+    "Bass - Late Bounce", "Bass - Rolling Sub", "Hat - Closed Soft", "Hat - Open Soft", "Stab - Rave", "Lead - Flow",
+    "Pad - Milchglas", "Riser - 8 Takte", "Siren - 16 Takte", "Kick - Bounce 160", "Kick+Bass - Bounce 160" };
+const char* const kToplineSounds[] = { "Supersaw - F-Moll Hymne (F5)", "Supersaw - E-Dur Euphorie (E5)", "Lead - Mono Glide",
+    "Stab - F-Moll Rave (F5)", "Stab - A-Dur Shine (A4)", "Stab - F-Moll7 Groove (F5)", "Pluck - F-Moll (F5)",
+    "Pluck - E-Dur Chords (E5)", "Whistle - Rave Pfeife (D#7)", "Whistle - Triller (D#7)" };
+const int kEngineSoundCount = (int)(sizeof(kEngineSounds) / sizeof(kEngineSounds[0]));
+const int kToplineSoundCount = (int)(sizeof(kToplineSounds) / sizeof(kToplineSounds[0]));
+
+const char* soundName(int synth, int program)
+{
+    if (synth == 1 && program >= 0 && program < kEngineSoundCount) return kEngineSounds[program];
+    if (synth == 2 && program >= 0 && program < kToplineSoundCount) return kToplineSounds[program];
+    return nullptr;
 }
 
 std::string setToJson(const Set& s)
@@ -153,9 +175,9 @@ std::string setToJson(const Set& s)
     for (int t = 0; t < kTracks; ++t) {
         const TrackConf& c = s.tracks[t];
         char buf[200];
-        std::snprintf(buf, sizeof(buf), "%s{\"name\":%s,\"channel\":%d,\"note\":%d,\"gate\":%g,\"volume\":%g,\"solo\":%s,\"melody\":%s}",
+        std::snprintf(buf, sizeof(buf), "%s{\"name\":%s,\"channel\":%d,\"note\":%d,\"gate\":%g,\"volume\":%g,\"solo\":%s,\"melody\":%s,\"synth\":%d}",
                       t ? "," : "", jsonQuote(c.name).c_str(), c.channel, c.note, c.gate, c.volume, c.solo ? "true" : "false",
-                      c.melody ? "true" : "false");
+                      c.melody ? "true" : "false", c.synth);
         o += buf;
     }
     o += "],\"patterns\":[";
@@ -239,6 +261,14 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         s.patterns[p].tracks[t].steps[st].keys = keys;
         return CommandResult::Edited;
     }
+    if (cmd == "program") { // program P T WERT (-1 = kein Sound-Wechsel)
+        if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !(in >> x)) {
+            if (err.empty()) err = "Wert fehlt";
+            return CommandResult::Error;
+        }
+        s.patterns[p].tracks[t].program = std::clamp((int)x, -1, 127);
+        return CommandResult::Edited;
+    }
     if (cmd == "length" || cmd == "rotate") {
         if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
@@ -279,7 +309,7 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         copyName(s.tracks[t].name, name);
         return CommandResult::Edited;
     }
-    if (cmd == "note" || cmd == "channel" || cmd == "gate" || cmd == "volume" || cmd == "solo" || cmd == "melody") {
+    if (cmd == "note" || cmd == "channel" || cmd == "gate" || cmd == "volume" || cmd == "solo" || cmd == "melody" || cmd == "synth") {
         if (!idx(t, kTracks, "Spur") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
             return CommandResult::Error;
@@ -290,6 +320,7 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         else if (cmd == "gate") c.gate = std::clamp((float)x, 0.05f, 0.95f);
         else if (cmd == "volume") c.volume = std::clamp((float)x, 0.0f, 1.0f);
         else if (cmd == "solo") c.solo = x >= 0.5;
+        else if (cmd == "synth") c.synth = std::clamp((int)x, 0, 2);
         else c.melody = x >= 0.5;
         return CommandResult::Edited;
     }

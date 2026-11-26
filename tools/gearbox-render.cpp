@@ -175,6 +175,33 @@ int checkAll()
         expect("Pattern B ab Taktanfang (Beat 8): genau ein Kick pro Takt auf Schritt 3", bAfter && afterBar == 1);
     }
 
+    std::puts("== Sound-Wechsel (Program Change) je Pattern");
+    {
+        Sim sim;
+        sim.cmd("program 0 0 0");
+        sim.cmd("program 1 0 13");
+        sim.cmd("copy 0 1");
+        sim.cmd("program 1 0 13"); // copy hat B überschrieben
+        sim.run(160, 6.0, true, [&](int64_t, double& beat) {
+            if (beat >= 5.3)
+                sim.cmd("pattern 1");
+        });
+        std::vector<Ev> pcs;
+        bool beforeNote = true;
+        for (size_t i = 0; i < sim.events.size(); ++i)
+            if (sim.events[i].s == 0xc0) {
+                pcs.push_back(sim.events[i]);
+                bool noteFirst = false; // kein Note-On derselben Spur zur selben Zeit vor dem Program Change
+                for (size_t j = 0; j < i; ++j)
+                    noteFirst |= sim.events[j].sample == sim.events[i].sample && sim.events[j].s == 0x90;
+                beforeNote &= !noteFirst;
+            }
+        expect("Start: Sound 0 an Sample 0, Wechsel auf 13 genau am Taktanfang (Beat 8), sonst keine",
+               pcs.size() == 2 && pcs[0].sample == 0 && pcs[0].d1 == 0 && pcs[1].sample == sampleOf(8.0, 160, sim.sr) && pcs[1].d1 == 13);
+        expect("Program Change kommt vor den Noten desselben Schritts", beforeNote);
+        expect("Spuren ohne Sound senden nichts", std::all_of(pcs.begin(), pcs.end(), [](const Ev& e) { return (e.s & 15) == 0; }));
+    }
+
     std::puts("== Polymetrik: Spur mit 3 Schritten gegen 16");
     {
         Sim sim;

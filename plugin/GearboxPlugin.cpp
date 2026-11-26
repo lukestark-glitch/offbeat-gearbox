@@ -114,7 +114,7 @@ protected:
             if (i < n) {
                 MidiEvent ev;
                 ev.frame = out[i].frame;
-                ev.size = 3;
+                ev.size = (out[i].data[0] & 0xf0) == 0xc0 ? 2 : 3;
                 std::memcpy(ev.data, out[i].data, 3);
                 ev.dataExt = nullptr;
                 writeMidiEvent(ev);

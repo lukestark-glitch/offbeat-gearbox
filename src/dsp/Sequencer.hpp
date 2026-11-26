@@ -60,6 +60,7 @@ private:
     bool hostPlaying = false, running = false, wasHost = false, playWasOn = false;
     double hostBeat = 0.0, hostTempo = 0.0, internalBeat = 0.0, expectedBeat = -1.0;
     int64_t lastFired = -1, patternStart = 0;
+    int sentProgram[kTracks]; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
     int playingPattern = 0;
 
     // klingende Noten je Spur: active[Spur][Note] = Kanal + 1 (0 = aus); mehrere bei Akkorden

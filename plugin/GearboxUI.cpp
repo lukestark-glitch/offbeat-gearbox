@@ -20,9 +20,9 @@ using namespace offbeat;
 using kit::kLabelH;
 
 namespace {
-constexpr float kW = 1120, kH = 720, kMargin = 20;
+constexpr float kW = 1220, kH = 720, kMargin = 20;
 constexpr float kTransportY = 104, kGridY = 186, kRowH = 46, kRemoteY = 618;
-constexpr float kNameW = 84, kSmallW = 30, kFieldW = 46, kCellW = 30, kCellGap = 3;
+constexpr float kSoundW = 96, kNameW = 84, kSmallW = 30, kFieldW = 46, kCellW = 30, kCellGap = 3;
 
 enum Button {
     kBtnStep = 1000,  // + Spur·64 + Schritt
@@ -30,7 +30,7 @@ enum Button {
     kBtnRotL = 2500, kBtnRotR = 2600, kBtnPattern = 2700, kBtnPage = 2750,
     kBtnPlay = 2800, kBtnFill = 2801, kBtnRemote = 2802, kBtnCopyPattern = 2803, kBtnCopySet = 2804,
     kBtnPasteGrid = 2805, kBtnClear = 2806, kBtnVelMode = 2807,
-    kBtnChannel = 3000, kBtnNote = 3100, kBtnGate = 3200, kBtnVolume = 3300, // + Spur
+    kBtnChannel = 3000, kBtnNote = 3100, kBtnGate = 3200, kBtnVolume = 3300, kBtnSound = 3400, // + Spur
     kBtnOctDown = 4100, kBtnOctUp = 4101, kBtnRollBack = 4102, kBtnRollMute = 4103, kBtnRollSolo = 4104,
     kBtnRoll = 5000, // + (Versatz − kKeyLow) · 64 + Schritt (Zelle der Piano-Roll)
 };
@@ -170,7 +170,7 @@ protected:
                 sendSet();
                 return true;
             }
-            if (b >= kBtnChannel && b < kBtnVolume + kTracks) {
+            if (b >= kBtnChannel && b < kBtnSound + kTracks) {
                 adjustField(b, -1);
                 return true;
             }
@@ -191,7 +191,7 @@ protected:
     {
         const float s = getWidth() / uiW;
         const Hit* h = hitAt(ev.pos.getX() / s, ev.pos.getY() / s);
-        if (h && h->kind == kButton && h->button >= kBtnChannel && h->button < kBtnVolume + kTracks) {
+        if (h && h->kind == kButton && h->button >= kBtnChannel && h->button < kBtnSound + kTracks) {
             adjustField(h->button, ev.delta.getY() > 0 ? 1 : -1);
             return true;
         }
@@ -305,7 +305,7 @@ protected:
             else
                 std::rotate(pt.steps, pt.steps + 1, pt.steps + pt.length);
             sendSet();
-        } else if (b >= kBtnChannel && b < kBtnVolume + kTracks) {
+        } else if (b >= kBtnChannel && b < kBtnSound + kTracks) {
             adjustField(b, 1);
         } else if (b >= kBtnPattern && b < kBtnPattern + kPatterns) {
             setValue(kPattern, (float)(b - kBtnPattern), true);
@@ -386,8 +386,48 @@ private:
             redraw();
     }
 
+    // Kurzname für das SOUND-Feld: Kategorie abgekürzt, z. B. „Bass Rubber“
+    static std::string soundLabel(const TrackConf& c, int program)
+    {
+        if (program < 0)
+            return "\xe2\x80\x93";
+        const char* n = soundName(c.synth, program);
+        std::string s = n ? n : "Prog " + std::to_string(program + 1);
+        if (const size_t d = s.find(" - "); d != std::string::npos)
+            s = s.substr(0, d) + " " + s.substr(d + 3);
+        if (const size_t p = s.find(" ("); p != std::string::npos)
+            s.resize(p);
+        if (s.size() > 13)
+            s.resize(13);
+        return s;
+    }
+
+    // SOUND: eine Liste aus „–“, allen Engine- und allen Topline-Presets; die Wahl legt auch den Synth der Spur fest
+    void adjustSound(int t, int dir)
+    {
+        TrackConf& c = model.tracks[t];
+        int& prog = model.patterns[editPattern()].tracks[t].program;
+        const int total = 1 + kEngineSoundCount + kToplineSoundCount;
+        int i = prog < 0 ? 0 : c.synth == 2 ? 1 + kEngineSoundCount + std::min(prog, kToplineSoundCount - 1)
+                                             : 1 + std::min(prog, kEngineSoundCount - 1);
+        i = (i + dir + total) % total;
+        if (i == 0)
+            prog = -1;
+        else if (i <= kEngineSoundCount)
+            c.synth = 1, prog = i - 1;
+        else
+            c.synth = 2, prog = i - 1 - kEngineSoundCount;
+        const char* n = soundName(c.synth, prog);
+        showStatus(std::string(c.name) + ": " + (n ? (c.synth == 1 ? "Engine \xc2\xb7 " : "Topline \xc2\xb7 ") + std::string(n) : "kein Sound-Wechsel"));
+        sendSet();
+    }
+
     void adjustField(int b, int dir)
     {
+        if (b >= kBtnSound) {
+            adjustSound(b - kBtnSound, dir);
+            return;
+        }
         TrackConf& c = model.tracks[(b - kBtnChannel) % 100];
         if (b < kBtnNote) c.channel = std::max(1, std::min(16, c.channel + dir));
         else if (b < kBtnGate) c.note = std::max(0, std::min(127, c.note + dir));
@@ -462,7 +502,9 @@ private:
             x += kFieldW + 4;
             std::snprintf(v, sizeof(v), "%d%%", (int)std::lround(c.volume * 100));
             field(kBtnVolume + t, x, y, kFieldW, h, "VOL", v);
-            x += kFieldW + 12;
+            x += kFieldW + 4;
+            field(kBtnSound + t, x, y, kSoundW, h, "SOUND", soundLabel(c, pt.program).c_str());
+            x += kSoundW + 12;
 
             // Schritte der Seite
             const int cursor = values[kPlaying] >= 0.5f && (int)values[kPlayingPattern] == pat ? (int)values[kStep1 + t] : -1;

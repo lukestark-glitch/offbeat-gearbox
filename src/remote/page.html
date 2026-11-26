@@ -72,6 +72,13 @@ button:disabled{opacity:.25}
 .rr .rn.cc{color:var(--a)}
 .c.b{background:#080502}
 #roll .c.t::after{right:2px;width:40%;top:40%;height:20%}
+#snd{position:fixed;inset:0;background:rgba(13,8,4,.92);display:none;align-items:center;justify-content:center;z-index:8}
+#snd.show{display:flex}
+#snd .box{width:420px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;padding:14px;border:1px solid var(--a);border-radius:18px;background:var(--pn);box-shadow:0 0 30px rgba(255,163,26,.3)}
+#snd .sl{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:4px;margin:8px 0}
+#snd .sl .lbl{margin-top:6px;color:var(--a)}
+#snd .sl button{text-align:left;text-transform:none;letter-spacing:.04em;min-height:42px}
+.row button.sn{min-width:0;width:84px;padding:0 4px;font-size:11px;letter-spacing:.02em;text-transform:none;overflow:hidden;white-space:nowrap}
 #keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 #keys button{min-height:56px;font-size:22px}
 </style>
@@ -96,6 +103,8 @@ button:disabled{opacity:.25}
 <div id="grid"></div>
 <!-- Piano-Roll -->
 <div id="roll"></div>
+<!-- Sound-Auswahl -->
+<div id="snd"><div class="box"><div class="lbl" id="sndt">Sound</div><div class="sl" id="sndl"></div><button id="sndx">Schließen</button></div></div>
 <!-- PIN-Dialog -->
 <div id="pin"><div class="box">
   <div class="lbl">PIN eingeben</div>
@@ -192,6 +201,7 @@ for(var t=0;t<8;t++)(function(t){
   nm.onclick=function(){if(model&&model.tracks[t]&&model.tracks[t].melody)openRoll(t);};
   var mb=mkBtn(r,"M",function(){var v=live.mutes[t]?0:1;live.mutes[t]=v;send("mute "+t+" "+v);dirty=true;draw();});
   var sb=mkBtn(r,"S",function(){var tr=model.tracks[t];tr.solo=!tr.solo;send("solo "+t+" "+(tr.solo?1:0));dirty=true;draw();});
+  var sn=mkBtn(r,"–",function(){openSound(t);});sn.className="sn";
   var cw=el("div","cells","",r);
   for(var i=0;i<16;i++)(function(i){
     var c=el("div","c","",cw);
@@ -214,8 +224,47 @@ for(var t=0;t<8;t++)(function(t){
   var lp=mkBtn(r,"+",function(){setLen(t,1);});
   var rl=mkBtn(r,"◀",function(){rot(t,-1);});
   var rr=mkBtn(r,"▶",function(){rot(t,1);});
-  rows.push({nm:nm,mb:mb,sb:sb,ln:ln});
+  rows.push({sn:sn,nm:nm,mb:mb,sb:sb,ln:ln});
 })(t);
+
+// ---------- Sound-Auswahl ----------
+// Muss zu src/dsp/Model.cpp kEngineSounds/kToplineSounds passen.
+var SND_ENGINE=["Kick - Hard Bounce","Kick - Bounce Soft","Bass - Offbeat F2","Bass - Rubber","Bass - Late Bounce","Bass - Rolling Sub","Hat - Closed Soft","Hat - Open Soft","Stab - Rave","Lead - Flow","Pad - Milchglas","Riser - 8 Takte","Siren - 16 Takte","Kick - Bounce 160","Kick+Bass - Bounce 160"];
+var SND_TOP=["Supersaw - F-Moll Hymne (F5)","Supersaw - E-Dur Euphorie (E5)","Lead - Mono Glide","Stab - F-Moll Rave (F5)","Stab - A-Dur Shine (A4)","Stab - F-Moll7 Groove (F5)","Pluck - F-Moll (F5)","Pluck - E-Dur Chords (E5)","Whistle - Rave Pfeife (D#7)","Whistle - Triller (D#7)"];
+function soundList(synth){return synth===1?SND_ENGINE:synth===2?SND_TOP:null;}
+function soundLabel(t){
+  var tr=curTrack(t),info=model&&model.tracks[t];
+  if(!tr||!info||tr.program==null||tr.program<0)return "–";
+  var l=soundList(info.synth),n=l&&l[tr.program];
+  if(!n)return "Prog "+(tr.program+1);
+  n=n.replace(" - "," ").replace(/ \(.*\)$/,"");
+  return n.length>12?n.substr(0,12):n;
+}
+function setSound(t,synth,idx){
+  var P=live.queued,tr=curTrack(t),info=model.tracks[t];
+  if(synth){send(["synth "+t+" "+synth,"program "+P+" "+t+" "+idx]);if(info)info.synth=synth;}
+  else send("program "+P+" "+t+" -1");
+  if(tr)tr.program=idx;
+  $("snd").classList.remove("show");
+  dirty=true;draw();
+}
+function openSound(t){
+  if(!model||!curTrack(t))return;
+  var cur=curTrack(t).program,cs=model.tracks[t].synth,L=$("sndl");
+  L.innerHTML="";
+  $("sndt").textContent="Sound – "+model.tracks[t].name+" ("+"ABCDEFGH".charAt(live.queued)+")";
+  var b=el("button",cur<0||cur==null?"on":"","– kein Sound-Wechsel",L);
+  b.onclick=function(){setSound(t,0,-1);};
+  [[1,"Engine",SND_ENGINE],[2,"Topline",SND_TOP]].forEach(function(g){
+    el("div","lbl",g[1],L);
+    g[2].forEach(function(n,i){
+      var bb=el("button",cs===g[0]&&cur===i?"on":"",n,L);
+      bb.onclick=function(){setSound(t,g[0],i);};
+    });
+  });
+  $("snd").classList.add("show");
+}
+$("sndx").onclick=function(){$("snd").classList.remove("show");};
 
 // ---------- Aktionen (optimistisch) ----------
 function cycle(t,s){
@@ -417,6 +466,7 @@ function render(){
     row.mb.classList.toggle("on",!!live.mutes[t]);
     row.sb.classList.toggle("on",!!info.solo);
     row.ln.textContent=tr.length;
+    row.sn.textContent=soundLabel(t);
     var cur=live.steps[t]!==undefined?live.steps[t]:-1;
     for(i=0;i<16;i++){
       var s=page*16+i,cls="c",txt="";

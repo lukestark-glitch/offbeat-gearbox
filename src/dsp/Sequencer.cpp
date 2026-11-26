@@ -115,13 +115,17 @@ void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t fr
         const PatternTrack& pt = set->patterns[playingPattern].tracks[tr];
         const int s = (int)(((g - patternStart) % pt.length + pt.length) % pt.length);
         params[kStep1 + tr] = (float)s;
+        const uint8_t ch = (uint8_t)(c.channel - 1);
+        if (pt.program >= 0 && pt.program != sentProgram[tr]) { // Sound wechseln, vor den Noten dieses Schritts
+            emit(out, n, max, frame, (uint8_t)(0xc0 | ch), (uint8_t)pt.program, 0);
+            sentProgram[tr] = pt.program;
+        }
         const Step& step = pt.steps[s];
         const bool audible = params[kMute1 + tr] < 0.5f && (!anySolo || c.solo);
         if (step.vel == kVelOff || !audible) {
             tieHold[tr] = false;
             continue;
         }
-        const uint8_t ch = (uint8_t)(c.channel - 1);
         const int vel = std::clamp((int)std::lround(kVelocityValues[step.vel] * c.volume), 1, 127);
         const double len = (step.tie ? kStep : 0.0) + c.gate * kStep; // Tie: hält über den nächsten Schritt
 
@@ -228,6 +232,7 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
         lastFired = g0 - 1;
         patternStart = (int64_t)std::floor((double)g0 / kBarSteps) * kBarSteps;
         playingPattern = (int)params[kPattern]; // Start: gewähltes Pattern sofort
+        std::fill(sentProgram, sentProgram + kTracks, -1); // Sounds beim Start immer senden
     }
     const double b1 = b0 + frames * bpf;
     // fällig, wenn der gerundete Sample-Index in diesen Block fällt (nicht t < b1: Rundung an der Blockgrenze)
