@@ -9,6 +9,8 @@
 // Name: Rechtsklick, tippen, Enter.
 // Raster-Änderungen gehen als ganzes Set per setState("set") an das Plugin; Änderungen vom iPad holt die
 // Oberfläche über localhost (GET /state), sobald der Revisionszähler sich ändert.
+#include <algorithm>
+
 #include "GearboxImage.h" // aus assets/gearbox.png erzeugt (xxd -i), siehe plugin/Makefile
 #include "Model.hpp"
 #include "OffbeatKit.hpp"
@@ -312,17 +314,18 @@ protected:
                 songs = listSongs();
             redraw();
         } else if (b == kBtnSongSave) {
-            std::string err;
-            if (saveSong(songText, setToJson(model), err)) {
-                songs = listSongs();
+            if (validSongName(songText)) { // der DSP speichert (mit den Sounds der verbundenen Synths)
+                songCommand("save " + songText);
+                if (std::find(songs.begin(), songs.end(), songText) == songs.end())
+                    songs.push_back(songText), std::sort(songs.begin(), songs.end());
                 showStatus("gespeichert: " + songText);
             } else
-                showStatus(validSongName(songText) ? err : "Name eingeben (ohne / \\ : * ? \" < > |)");
+                showStatus("Name eingeben (ohne / \\ : * ? \" < > |)");
         } else if (b >= kBtnSongLoad && b < kBtnSongLoad + (int)songs.size()) {
             std::string json, err;
             if (loadSong(songs[b - kBtnSongLoad], json, err) && applyJsonText(model, json.c_str(), 0, err)) {
                 songText = songs[b - kBtnSongLoad];
-                sendSet();
+                songCommand("load " + songText); // DSP lädt Raster und schickt die Sounds an die Synths
                 showStatus("geladen: " + songText);
             } else
                 showStatus(err);
@@ -418,6 +421,7 @@ private:
     std::string nameText;
     bool fillHeld = false, velMode = false;
     bool songView = false;          // Song-Ansicht statt Raster
+    int songSerial = 0;
     std::string songText;           // Name zum Speichern
     std::vector<std::string> songs; // gespeicherte Songs (beim Öffnen/Speichern gelesen)
     int rollTrack = -1, rollView = 0; // offene Piano-Roll (Spur, unterster Versatz)
@@ -639,6 +643,11 @@ private:
             pill(kBtnRotL + t, x, y + 6, 24, h - 12, "\xe2\x97\x80", th.brand, false);
             pill(kBtnRotR + t, x + 28, y + 6, 24, h - 12, "\xe2\x96\xb6", th.brand, false);
         }
+    }
+
+    void songCommand(const std::string& c)
+    {
+        setState("song", (c + "\n#" + std::to_string(++songSerial)).c_str()); // Zähler: gleicher Befehl zweimal
     }
 
     // Songs (links) und Ablauf (rechts) statt des Rasters

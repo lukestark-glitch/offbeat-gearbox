@@ -15,7 +15,7 @@ using namespace offbeat;
 class GearboxPlugin : public Plugin {
 public:
     GearboxPlugin()
-        : Plugin(kParamCount, 0, 1)
+        : Plugin(kParamCount, 0, 2)
     {
         seq.setSampleRate((float)getSampleRate());
         seq.setSet(core.acquire());
@@ -31,8 +31,15 @@ protected:
 
     void initParameter(uint32_t index, Parameter& parameter) override { fillParameter(kParams[index], parameter); }
 
-    void initState(uint32_t, State& state) override
+    void initState(uint32_t index, State& state) override
     {
+        if (index == 1) { // Oberfläche → DSP: "save NAME" / "load NAME" (Song mit Sounds der Synths); wird nicht gespeichert
+            state.key = "song";
+            state.label = "Song";
+            state.defaultValue = "";
+            state.hints = 0;
+            return;
+        }
         state.key = "set";
         state.label = "Raster";
         Set s;
@@ -51,6 +58,8 @@ protected:
         std::string err;
         if (std::strcmp(key, "set") == 0)
             core.setStateJson(value, err); // fehlerhaftes JSON: Raster bleibt
+        else if (std::strcmp(key, "song") == 0 && value[0])
+            core.command(std::string("song ") + value, err, false);
     }
 
     float getParameterValue(uint32_t index) const override
@@ -73,7 +82,7 @@ protected:
 
     void sampleRateChanged(double newSampleRate) override { seq.setSampleRate((float)newSampleRate); }
 
-    void activate() override { panicPending = true; } // nach Pause/Neustart: hängende Noten der Empfänger löschen
+    void activate() override { panicPending = true, helloTimer = 0; } // nach Pause/Neustart: hängende Noten der Empfänger löschen
 
     void run(const float**, float** outputs, uint32_t frames, const MidiEvent* events, uint32_t eventCount) override
     {
@@ -87,7 +96,25 @@ protected:
             if (id == kRemote)
                 core.server.setEnabled(value >= 0.5f);
         }
-        seq.setSet(core.acquire());
+        const Set* set = core.acquire();
+        seq.setSet(set);
+
+        // Offbeat Link: alle 2 s (und nach dem Aktivieren) Kennung + Spur per NRPN auf dem Kanal jeder Spur
+        helloTimer -= frames;
+        if (helloTimer <= 0 && set) {
+            helloTimer = (int64_t)(getSampleRate() * 2.0);
+            const uint32_t id = core.linkId;
+            for (int t = 0; t < kTracks; ++t) {
+                const uint8_t ch = (uint8_t)(0xb0 | (set->tracks[t].channel - 1));
+                const uint32_t parts[3] = { id >> 14 & 0x3fff, id & 0x3fff, (uint32_t)t };
+                sendCC(ch, 99, 0x3e);
+                for (int k = 0; k < 3; ++k) {
+                    sendCC(ch, 98, (uint8_t)k);
+                    sendCC(ch, 6, (uint8_t)(parts[k] >> 7));
+                    sendCC(ch, 38, (uint8_t)(parts[k] & 0x7f));
+                }
+            }
+        }
 
         const TimePosition& tp = getTimePosition();
         double hostBpm = 0.0;
@@ -132,6 +159,18 @@ protected:
     }
 
 private:
+    int64_t helloTimer = 0;
+
+    void sendCC(uint8_t status, uint8_t cc, uint8_t value)
+    {
+        MidiEvent ev;
+        ev.frame = 0;
+        ev.size = 3;
+        ev.data[0] = status, ev.data[1] = cc, ev.data[2] = value;
+        ev.dataExt = nullptr;
+        writeMidiEvent(ev);
+    }
+
     static constexpr int kMaxOut = 512;
     mutable Core core;
     Sequencer seq;

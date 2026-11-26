@@ -25,6 +25,7 @@ public:
     bool setStateJson(const char* json, std::string& err);  // ganzes Set (Host lädt Projekt, EINFÜGEN)
     bool command(const std::string& lines, std::string& err, bool allowParams);
     uint32_t revision() const { return rev; }
+    const uint32_t linkId; // Offbeat Link: Kennung dieser Instanz (zufällig, 28 Bit)
 
     // Audio-Thread: zu Blockbeginn
     const Set* acquire();

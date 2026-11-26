@@ -3,12 +3,24 @@
 #include "Songs.hpp"
 
 #include <cstdio>
+#include <random>
 #include <sstream>
 
 namespace offbeat {
 
+namespace {
+uint32_t randomLinkId()
+{
+    std::random_device rd;
+    uint32_t v = 0;
+    while (v == 0)
+        v = rd() & 0x0fffffff;
+    return v;
+}
+} // namespace
+
 Core::Core()
-    : server(*this)
+    : linkId(randomLinkId()), server(*this)
 {
     defaultSet(shadow);
     current = new Set(shadow);
@@ -68,9 +80,11 @@ bool Core::command(const std::string& lines, std::string& err, bool allowParams)
             std::getline(sl >> std::ws, name);
             bool done = false;
             if (op == "save")
-                edited |= done = saveSong(name, setToJson(shadow), e); // neue Revision: Geräte holen die Song-Liste
+                edited |= done = saveSong(name, withSounds(setToJson(shadow), name, linkId), e); // neue Revision: Song-Liste
             else if (op == "load") {
                 done = loadSong(name, json, e) && applyJsonText(shadow, json.c_str(), 0, e);
+                if (done)
+                    sendSounds(json, linkId);
                 edited |= done;
             } else
                 e = "song save NAME | song load NAME";

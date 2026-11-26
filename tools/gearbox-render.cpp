@@ -5,6 +5,8 @@
 //   gearbox-render --serve [--port 8080] [--pin 1234] [--fake-peer 8.8.8.8]
 //   gearbox-render --dump [--bpm 160] [--beats 8]               (Ereignisse als Text)
 #include "Model.hpp"
+#include "Songs.hpp"
+#include "../link/OffbeatLink.hpp"
 #include "Sequencer.hpp"
 #include "SharedClock.hpp"
 #ifdef GEARBOX_SERVER
@@ -276,6 +278,30 @@ int checkAll()
         std::string err;
         const bool ok = applyJsonText(back, setToJson(sim.set).c_str(), 0, err);
         expect("Ablauf übersteht JSON", ok && back.chainOn && back.chainLen == 2 && back.chain[1].pattern == 1 && back.chain[1].bars == 1);
+    }
+
+    std::puts("== Offbeat Link: Song speichert und lädt den Sound eines verbundenen Synths");
+    {
+        setenv("GEARBOX_SONG_DIR", "/tmp/gearbox-render-songs", 1);
+        link::Client synth(link::kEngine);
+        const uint32_t id = 0x0abcdef;
+        const uint32_t parts[3] = { id >> 14 & 0x3fff, id & 0x3fff, 3 };
+        synth.cc(99, 0x3e);
+        for (int k = 0; k < 3; ++k)
+            synth.cc(98, (uint8_t)k), synth.cc(6, (uint8_t)(parts[k] >> 7)), synth.cc(38, (uint8_t)(parts[k] & 0x7f));
+        float knob[4] = { 0.25f, 0.5f, 3.0f, 0.75f }, got[link::kMaxValues];
+        int n = 0;
+        synth.update(1.0, 4, [&](int i) { return knob[i]; }, got, n);
+        Set s;
+        defaultSet(s);
+        const std::string song = withSounds(setToJson(s), "Link-Test", id);
+        expect("Song enthält den Sound von Spur 4 (engine, 4 Werte)",
+               song.find("\"sounds\":[{\"track\":3,\"plugin\":\"engine\",\"values\":[0.25,0.5,3,0.75]") != std::string::npos);
+        knob[2] = 9.0f; // am Synth verdreht
+        const int sent = sendSounds(song, id);
+        const bool applied = synth.update(0.01, 4, [&](int i) { return knob[i]; }, got, n);
+        expect("Laden schickt den gespeicherten Sound zurück an den Synth", sent == 1 && applied && n == 4 && got[2] == 3.0f);
+        expect("Anfrage wird nur einmal angewendet", !synth.update(0.01, 4, [&](int i) { return knob[i]; }, got, n));
     }
 
     std::puts("== Polymetrik: Spur mit 3 Schritten gegen 16");
