@@ -25,11 +25,11 @@ using kit::kLabelH;
 namespace {
 constexpr float kW = 1220, kH = 720, kMargin = 20;
 constexpr float kTransportY = 104, kGridY = 186, kRowH = 46, kRemoteY = 618;
-constexpr float kSoundW = 96, kNameW = 84, kSmallW = 30, kFieldW = 46, kCellW = 30, kCellGap = 3;
+constexpr float kSoundW = 96, kNameW = 62, kSmallW = 30, kFieldW = 46, kCellW = 30, kCellGap = 3;
 
 enum Button {
     kBtnStep = 1000,  // + Spur·64 + Schritt
-    kBtnMute = 2000, kBtnSolo = 2100, kBtnName = 2200, kBtnLenDown = 2300, kBtnLenUp = 2400,
+    kBtnMute = 2000, kBtnSolo = 2100, kBtnName = 2200, kBtnLenDown = 2300, kBtnLenUp = 2400, kBtnMelody = 2900,
     kBtnRotL = 2500, kBtnRotR = 2600, kBtnPattern = 2700, kBtnPage = 2750,
     kBtnPlay = 2800, kBtnFill = 2801, kBtnRemote = 2802, kBtnCopyPattern = 2803, kBtnCopySet = 2804,
     kBtnPasteGrid = 2805, kBtnClear = 2806, kBtnVelMode = 2807,
@@ -358,6 +358,9 @@ protected:
             redraw();
         } else if (b >= kBtnMute && b < kBtnMute + kTracks) {
             setValue(kMute1 + b - kBtnMute, muted(b - kBtnMute) ? 0 : 1, true);
+        } else if (b >= kBtnMelody && b < kBtnMelody + kTracks) {
+            model.tracks[b - kBtnMelody].melody = !model.tracks[b - kBtnMelody].melody;
+            sendSet();
         } else if (b >= kBtnSolo && b < kBtnSolo + kTracks) {
             model.tracks[b - kBtnSolo].solo = !model.tracks[b - kBtnSolo].solo;
             sendSet();
@@ -561,7 +564,9 @@ private:
             pill(kBtnMute + t, x, y + 6, kSmallW, h - 12, "M", th.brand, isMuted);
             x += kSmallW + 4;
             pill(kBtnSolo + t, x, y + 6, kSmallW, h - 12, "S", th.light, c.solo);
-            x += kSmallW + 8;
+            x += kSmallW + 4;
+            pill(kBtnMelody + t, x, y + 6, 24, h - 12, "\xe2\x99\xaa", th.light, c.melody); // Melodie: eigene Tonhöhen
+            x += 24 + 6;
 
             char v[16];
             std::snprintf(v, sizeof(v), "%d", c.channel);
