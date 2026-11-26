@@ -101,7 +101,7 @@ protected:
         const float ty = kTransportY + kLabelH + 10;
         const bool playing = values[kPlaying] >= 0.5f;
         pill(kBtnPlay, kMargin + 14, ty, 96, 30, playing ? "Stop" : "Play", th.brand, playing);
-        const int running = (int)values[kPlayingPattern], selected = (int)values[kPattern];
+        const int running = (int)values[kPlayingPattern], selected = editPattern();
         for (int p = 0; p < kPatterns; ++p) {
             const char name[2] = { (char)('A' + p), 0 };
             const float x = kMargin + 130 + p * 42;
@@ -280,7 +280,7 @@ protected:
             rollTrack = -1;
             redraw();
         } else if (b == kBtnRollMute && rollTrack >= 0) {
-            setValue(kMute1 + rollTrack, values[kMute1 + rollTrack] >= 0.5f ? 0 : 1, true);
+            setValue(kMute1 + rollTrack, muted(rollTrack) ? 0 : 1, true);
         } else if (b == kBtnRollSolo && rollTrack >= 0) {
             model.tracks[rollTrack].solo = !model.tracks[rollTrack].solo;
             sendSet();
@@ -288,7 +288,7 @@ protected:
             velMode = !velMode;
             redraw();
         } else if (b >= kBtnMute && b < kBtnMute + kTracks) {
-            setValue(kMute1 + b - kBtnMute, values[kMute1 + b - kBtnMute] >= 0.5f ? 0 : 1, true);
+            setValue(kMute1 + b - kBtnMute, muted(b - kBtnMute) ? 0 : 1, true);
         } else if (b >= kBtnSolo && b < kBtnSolo + kTracks) {
             model.tracks[b - kBtnSolo].solo = !model.tracks[b - kBtnSolo].solo;
             sendSet();
@@ -357,7 +357,10 @@ private:
     std::string address;
     Clock::time_point addressTime;
 
-    int editPattern() const { return (int)values[kPattern]; } // bearbeitet wird das gewählte Pattern
+    // Bearbeitet wird das Pattern, das der DSP gewählt hat (Anzeige-Wert): auch wenn eine Auswahl vom iPad
+    // den Host-Parameter nicht erreicht hat, bearbeitet die Oberfläche dasselbe Pattern, das gleich spielt.
+    int editPattern() const { return (int)values[kQueuedPattern]; }
+    bool muted(int t) const { return ((int)values[kMuteState] >> t) & 1; }
 
     int maxLength() const
     {
@@ -427,7 +430,7 @@ private:
             const PatternTrack& pt = model.patterns[pat].tracks[t];
             const float y = kGridY + kLabelH + 6 + t * kRowH, h = kRowH - 8;
             float x = kMargin + 12;
-            const bool muted = values[kMute1 + t] >= 0.5f, silent = muted || (anySolo && !c.solo);
+            const bool isMuted = muted(t), silent = isMuted || (anySolo && !c.solo);
 
             // Name
             addHit(-1, kBtnName + t, x, y, kNameW, h, kButton, y + h);
@@ -442,7 +445,7 @@ private:
             text(x + 8, y + h / 2, name.c_str(), nullptr);
             x += kNameW + 6;
 
-            pill(kBtnMute + t, x, y + 6, kSmallW, h - 12, "M", th.brand, muted);
+            pill(kBtnMute + t, x, y + 6, kSmallW, h - 12, "M", th.brand, isMuted);
             x += kSmallW + 4;
             pill(kBtnSolo + t, x, y + 6, kSmallW, h - 12, "S", th.light, c.solo);
             x += kSmallW + 8;
@@ -540,7 +543,7 @@ private:
         drawPanel(px, py, pw, ph, title, th.brand);
 
         const float by = py + kLabelH + 2;
-        pill(kBtnRollMute, px + 12, by, 30, 22, "M", th.brand, values[kMute1 + rollTrack] >= 0.5f);
+        pill(kBtnRollMute, px + 12, by, 30, 22, "M", th.brand, muted(rollTrack));
         pill(kBtnRollSolo, px + 46, by, 30, 22, "S", th.light, c.solo);
         pill(kBtnOctDown, px + pw - 12 - 3 * 96, by, 88, 22, "Okt -", th.brand, false);
         pill(kBtnOctUp, px + pw - 12 - 2 * 96, by, 88, 22, "Okt +", th.brand, false);

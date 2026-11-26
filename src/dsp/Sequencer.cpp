@@ -188,6 +188,10 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
     int n = 0;
     if (frames == 0)
         return 0;
+    int mutes = 0;
+    for (int t = 0; t < kTracks; ++t)
+        mutes |= (params[kMute1 + t] >= 0.5f) << t;
+    params[kMuteState] = (float)mutes;
     const bool playOn = params[kPlay] >= 0.5f;
     const bool nowRunning = hostPlaying || playOn;
     if (!nowRunning || (hostPlaying != wasHost && running) || (playOn && !playWasOn && !hostPlaying)) {

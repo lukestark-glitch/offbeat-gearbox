@@ -37,6 +37,7 @@ const ParamInfo kParams[kParamCount] = {
     { "Remote PIN",    "remote_pin",   "",    0,     9999,  0,       kFlagOutput | kFlagHidden },
     { "Remote Clients", "remote_clients", "", 0,     16,    0,       kFlagOutput | kFlagHidden },
     { "Revision",      "revision",     "",    0,     1e7f,  0,       kFlagOutput | kFlagHidden },
+    { "Mute State",    "mute_state",   "",    0,     255,   0,       kFlagOutput | kFlagHidden },
 };
 
 const Preset kPresets[kPresetCount] = { { "Standard" } };

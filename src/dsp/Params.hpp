@@ -23,6 +23,7 @@ enum ParamId {
     kRemotePin,
     kRemoteClients,
     kRevision, // zählt bei jeder Änderung am Raster hoch (Oberfläche holt dann den Zustand)
+    kMuteState, // Mutes, wie der DSP sie gerade anwendet (Bit je Spur): auch wenn der Host eine Änderung vom iPad nicht übernimmt
     kParamCount
 };
 

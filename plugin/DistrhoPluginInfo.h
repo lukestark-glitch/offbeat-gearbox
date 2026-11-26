@@ -30,6 +30,9 @@
 #define DISTRHO_PLUGIN_WANT_TIMEPOS     1
 #define DISTRHO_PLUGIN_WANT_PARAMETER_VALUE_CHANGE_REQUEST 1 // iPad schaltet Mutes/Pattern/Play im Host
 
+// LV2: Puffer für Nachrichten Oberfläche → DSP; das ganze Raster als JSON ist ~11 KB (Standard wäre 2 KB)
+#define DISTRHO_PLUGIN_MINIMUM_BUFFER_SIZE 65536
+
 #define DISTRHO_PLUGIN_HAS_UI           1
 #define DISTRHO_UI_USE_NANOVG           1
 #define DISTRHO_UI_USER_RESIZABLE       0
