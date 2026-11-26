@@ -33,6 +33,13 @@ void Sequencer::setTransport(bool playing, double beat, double bpm)
     hostTempo = bpm;
 }
 
+void Sequencer::setClock(bool valid, double beat, double bpm)
+{
+    clockValid = valid && bpm > 0.0;
+    clockBeat = beat;
+    clockBpm = bpm;
+}
+
 double Sequencer::stepTime(int64_t g) const
 {
     const double swing = params[kSwing] / 75.0 * 0.5 * kStep; // höchstens ½ Schritt
@@ -220,13 +227,21 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
         return n;
     }
 
-    const double bpm = hostPlaying ? hostTempo : (double)params[kBpm];
+    const bool follow = !hostPlaying && clockValid && params[kClockFollow] >= 0.5f;
+    params[kClockActive] = follow ? 1.0f : 0.0f;
+    const double bpm = hostPlaying ? hostTempo : follow ? clockBpm : (double)params[kBpm];
     const double bpf = bpm / 60.0 / sr; // Schläge pro Sample
     double b0 = hostPlaying ? hostBeat : internalBeat;
-    if (!running) { // Start
+    if (!running) { // Start: intern bei 0, mit Clutch-Takt auf dessen Taktlage
         if (!hostPlaying)
-            b0 = internalBeat = 0.0;
+            b0 = internalBeat = follow ? clockBeat : 0.0;
         expectedBeat = b0;
+    } else if (follow) {
+        const double err = clockBeat - internalBeat;
+        if (std::fabs(err) > 0.25) // Sprung im Clutch-Takt
+            b0 = internalBeat = clockBeat;
+        else // Jitter der Uhrzeit: höchstens 0,5 ms je Block nachziehen (unter der Sprung-Erkennung)
+            b0 = internalBeat += std::clamp(err * 0.1, -5e-4, 5e-4);
     }
     if (running && std::fabs(b0 - expectedBeat) > 1e-3) { // Sprung (Loop, Spulen): Noten aus, neu ausrichten
         stopAll(out, n, max, 0);

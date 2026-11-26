@@ -6,6 +6,7 @@
 //   gearbox-render --dump [--bpm 160] [--beats 8]               (Ereignisse als Text)
 #include "Model.hpp"
 #include "Sequencer.hpp"
+#include "SharedClock.hpp"
 #ifdef GEARBOX_SERVER
 #include "Server.hpp"
 #endif
@@ -173,6 +174,48 @@ int checkAll()
             afterBar += e.sample >= sampleOf(8.0, 160, sim.sr) && e.sample < sampleOf(12.0, 160, sim.sr);
         expect("Pattern A spielt bis Taktende weiter (Kick auf jedem Schlag)", aUntilBar && kicks.size() > 8);
         expect("Pattern B ab Taktanfang (Beat 8): genau ein Kick pro Takt auf Schritt 3", bAfter && afterBar == 1);
+    }
+
+    std::puts("== Takt von Offbeat Clutch (Shared Clock) folgen");
+    {
+        Sim sim;
+        sim.cmd("play 1");
+        uint32_t rng = 7;
+        sim.run(150, 6.0, false, [&](int64_t pos, double&) { // Clutch läuft schon bei Schlag 2,5; Uhr-Jitter ±0,0003
+            rng = rng * 1664525u + 1013904223u;
+            const double jitter = ((rng >> 8) / 16777216.0 - 0.5) * 0.0006;
+            sim.seq.setClock(true, 2.5 + (double)pos / sim.sr * 150.0 / 60.0 + jitter, 150.0);
+        });
+        const std::vector<Ev> kicks = onsOf(sim.events, 1);
+        int64_t worst = 0;
+        for (const Ev& e : kicks) {
+            const double beat = 2.5 + (double)e.sample / sim.sr * 150.0 / 60.0;
+            worst = std::max<int64_t>(worst, std::llabs(e.sample - (int64_t)std::llround((std::round(beat) - 2.5) * sim.sr * 60.0 / 150.0)));
+        }
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "Kicks auf den Schlägen des Clutch-Takts (150 BPM, ab Schlag 3): %zu, max. Abweichung %lld Samples",
+                      kicks.size(), (long long)worst);
+        expect(buf, kicks.size() >= 14 && !kicks.empty() && kicks[0].sample == sampleOf(0.5, 150, sim.sr) && worst <= 48);
+        expect("Clutch-Takt wird angezeigt (Clock Active)", sim.seq.getParam(kClockActive) >= 0.5f);
+
+        Sim jump; // Sprung im Clutch-Takt: neu ausrichten, nichts hängt
+        jump.cmd("play 1");
+        jump.run(160, 4.0, false, [&](int64_t pos, double&) {
+            const double b = (double)pos / jump.sr * 160.0 / 60.0;
+            jump.seq.setClock(true, b < 5.0 ? b : b + 4.0, 160.0);
+        });
+        jump.cmd("play 0");
+        jump.run(160, 0.2, false);
+        int hanging = 0;
+        expect("Sprung im Clutch-Takt: keine hängenden Noten", noHanging(jump.events, hanging));
+
+        SharedClock writer("/offbeat-clock-test"), reader("/offbeat-clock-test");
+        writer.write(true, 12.0, 140.0);
+        double b = 0, t = 0;
+        const bool got = reader.read(b, t);
+        expect("Shared Clock: Schreiben und Lesen über Shared Memory", writer.valid() && got && t == 140.0 && b >= 12.0 && b < 12.01);
+        writer.write(false, 0.0, 140.0);
+        expect("Shared Clock: gestoppter Takt gilt nicht", !reader.read(b, t));
     }
 
     std::puts("== Sound-Wechsel (Program Change) je Pattern");

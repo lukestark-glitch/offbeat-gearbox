@@ -4,6 +4,7 @@
 #include "DistrhoPlugin.hpp"
 #include "OffbeatParam.hpp"
 #include "Sequencer.hpp"
+#include "SharedClock.hpp"
 
 #include <cmath>
 
@@ -97,6 +98,9 @@ protected:
         } else {
             seq.setTransport(false, 0.0, 0.0);
         }
+        double clockBeat = 0.0, clockBpm = 0.0;
+        const bool clockOk = clock.read(clockBeat, clockBpm);
+        seq.setClock(clockOk, clockBeat, clockBpm);
 
         int n = 0;
         if (panicPending) {
@@ -131,6 +135,7 @@ private:
     static constexpr int kMaxOut = 512;
     mutable Core core;
     Sequencer seq;
+    SharedClock clock; // Takt von Offbeat Clutch
     MidiOut out[kMaxOut];
     bool panicPending = true;
 

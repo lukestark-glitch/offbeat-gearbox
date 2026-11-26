@@ -38,6 +38,8 @@ const ParamInfo kParams[kParamCount] = {
     { "Remote Clients", "remote_clients", "", 0,     16,    0,       kFlagOutput | kFlagHidden },
     { "Revision",      "revision",     "",    0,     1e7f,  0,       kFlagOutput | kFlagHidden },
     { "Mute State",    "mute_state",   "",    0,     255,   0,       kFlagOutput | kFlagHidden },
+    { "Clock Follow",  "clock_follow", "",    0,     1,     1,       kFlagBool | kFlagHidden },
+    { "Clock Active",  "clock_active", "",    0,     1,     0,       kFlagOutput | kFlagHidden },
 };
 
 const Preset kPresets[kPresetCount] = { { "Standard" } };

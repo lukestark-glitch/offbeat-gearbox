@@ -29,6 +29,9 @@ public:
 
     // Einmal pro Block vor process(): Host-Transport. hostPlaying mit gültigem Takt hat Vorrang vor Play.
     void setTransport(bool hostPlaying, double beat, double hostBpm);
+    // Takt von Offbeat Clutch (Shared Clock), gilt nur ohne Host-Transport und mit kClockFollow: Tempo und
+    // Taktlage folgen ihm (kleine Abweichungen werden weich nachgezogen, große als Sprung behandelt)
+    void setClock(bool valid, double beat, double bpm);
 
     // Erzeugt die Ereignisse des Blocks, nach frame sortiert. Rückgabe: Anzahl (höchstens max).
     int process(uint32_t frames, MidiOut* out, int max);
@@ -58,6 +61,8 @@ private:
 
     // Transport
     bool hostPlaying = false, running = false, wasHost = false, playWasOn = false;
+    bool clockValid = false;
+    double clockBeat = 0.0, clockBpm = 0.0;
     double hostBeat = 0.0, hostTempo = 0.0, internalBeat = 0.0, expectedBeat = -1.0;
     int64_t lastFired = -1, patternStart = 0;
     int sentProgram[kTracks];

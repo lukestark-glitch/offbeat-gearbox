@@ -217,7 +217,7 @@ void Server::loop()
             c.out = response(200, "OK", "application/manifest+json", std::string((const char*)manifest_webmanifest, manifest_webmanifest_len));
             return true;
         }
-        if (path != "/state" && path != "/events" && path != "/cmd") {
+        if (path != "/state" && path != "/events" && path != "/cmd" && path != "/live") {
             c.out = response(404, "Not Found", "text/plain", "nicht gefunden\n");
             return true;
         }
@@ -234,6 +234,10 @@ void Server::loop()
             if (++failures >= 10)
                 blockedUntil = now + std::chrono::seconds(60), failures = 0;
             c.out = response(403, "Forbidden", "text/plain", "PIN falsch\n");
+            return true;
+        }
+        if (!std::strcmp(method, "GET") && path == "/live") { // Laufzustand (Pattern, Play) für Offbeat Clutch
+            c.out = response(200, "OK", "application/json", host.remoteLive());
             return true;
         }
         if (!std::strcmp(method, "GET") && path == "/state") {

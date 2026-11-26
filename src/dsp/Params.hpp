@@ -24,6 +24,8 @@ enum ParamId {
     kRemoteClients,
     kRevision, // zählt bei jeder Änderung am Raster hoch (Oberfläche holt dann den Zustand)
     kMuteState, // Mutes, wie der DSP sie gerade anwendet (Bit je Spur): auch wenn der Host eine Änderung vom iPad nicht übernimmt
+    kClockFollow, // folgt dem Takt von Offbeat Clutch (Shared Clock), wenn der Host nicht spielt (versteckt)
+    kClockActive, // Anzeige: Takt von Clutch wird gerade verwendet (versteckt)
     kParamCount
 };
 

@@ -19,6 +19,8 @@ curl -s "$U/manifest.webmanifest" | grep -q '"standalone"'; ok "Manifest (Web-Ap
 [ "$(code "$U/state")" = 403 ]; ok "ohne PIN abgelehnt (403)" $?
 [ "$(code "$U/state?pin=1111")" = 403 ]; ok "falsche PIN abgelehnt (403)" $?
 curl -s "$U/state?pin=4321" | grep -q '"gearbox":1'; ok "richtige PIN: Zustand als JSON" $?
+curl -s "$U/live?pin=4321" | grep -q "\"queued\":"; ok "Laufzustand für Clutch (/live)" $?
+[ "$(code "$U/live?pin=1111")" = 403 ]; ok "/live nur mit PIN" $?
 [ "$(code "$U/../../etc/passwd?pin=4321")" = 404 ]; ok "kein Dateizugriff (404)" $?
 [ "$(code -X POST --data-binary "step 0 7 5 3" "$U/cmd?pin=4321")" = 204 ]; ok "Schritt per POST gesetzt (204)" $?
 curl -s "$U/state?pin=4321" | grep -q '"steps":".....X'; ok "Schritt im Zustand sichtbar (Spur 8, Schritt 6 laut)" $?
