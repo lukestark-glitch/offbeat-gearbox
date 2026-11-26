@@ -13,6 +13,7 @@
 #include "Model.hpp"
 #include "OffbeatKit.hpp"
 #include "Server.hpp"
+#include "Songs.hpp"
 
 START_NAMESPACE_DISTRHO
 
@@ -32,6 +33,10 @@ enum Button {
     kBtnPasteGrid = 2805, kBtnClear = 2806, kBtnVelMode = 2807,
     kBtnChannel = 3000, kBtnNote = 3100, kBtnGate = 3200, kBtnVolume = 3300, kBtnSound = 3400, // + Spur
     kBtnOctDown = 4100, kBtnOctUp = 4101, kBtnRollBack = 4102, kBtnRollMute = 4103, kBtnRollSolo = 4104,
+    kBtnSongs = 4200, kBtnSongSave = 4201, kBtnChainOn = 4202, kBtnChainClear = 4203,
+    kBtnSongLoad = 4300,  // + Index in der Song-Liste
+    kBtnChainAdd = 4400,  // + Pattern
+    kBtnChainDown = 4500, kBtnChainUp = 4600, kBtnChainDel = 4700, // + Eintrag
     kBtnRoll = 5000, // + (Versatz − kKeyLow) · 64 + Schritt (Zelle der Piano-Roll)
 };
 
@@ -124,7 +129,10 @@ protected:
             const bool enabled = k * 16 < maxLength();
             pill(kBtnPage + k, kMargin + 904 + k * 40, ty, 34, 30, label, enabled ? th.brand : th.track, k == page);
         }
-        if (rollTrack >= 0)
+        pill(kBtnSongs, kMargin + 1074, ty, 92, 30, model.chainOn ? "SONG \xe2\x96\xb8" : "SONG", th.light, songView);
+        if (songView)
+            drawSongs();
+        else if (rollTrack >= 0)
             drawRoll();
         else
             drawGrid();
@@ -200,6 +208,19 @@ protected:
 
     bool onKeyboard(const KeyboardEvent& ev) override
     {
+        if (songView && editName < 0 && ev.press) { // Song-Ansicht: Tippen schreibt den Namen, Enter speichert
+            if (ev.key == kKeyEnter)
+                onButton(kBtnSongSave);
+            else if (ev.key == kKeyEscape)
+                songView = false, redraw();
+            else if (ev.key == kKeyBackspace && !songText.empty()) {
+                do
+                    songText.pop_back();
+                while (!songText.empty() && ((unsigned char)songText.back() & 0xc0) == 0x80);
+                redraw();
+            }
+            return true;
+        }
         if (editName < 0)
             return OffbeatKitUI::onKeyboard(ev);
         if (!ev.press)
@@ -220,6 +241,12 @@ protected:
 
     bool onCharacterInput(const CharacterInputEvent& ev) override
     {
+        if (songView && editName < 0) {
+            if ((unsigned char)ev.string[0] >= 0x20 && songText.size() + std::strlen(ev.string) <= 48)
+                songText += ev.string;
+            redraw();
+            return true;
+        }
         if (editName < 0)
             return OffbeatKitUI::onCharacterInput(ev);
         if ((unsigned char)ev.string[0] >= 0x20 && nameText.size() + std::strlen(ev.string) < sizeof(TrackConf::name) - 1)
@@ -279,6 +306,45 @@ protected:
         } else if (b == kBtnRollBack) {
             rollTrack = -1;
             redraw();
+        } else if (b == kBtnSongs) {
+            songView = !songView;
+            if (songView)
+                songs = listSongs();
+            redraw();
+        } else if (b == kBtnSongSave) {
+            std::string err;
+            if (saveSong(songText, setToJson(model), err)) {
+                songs = listSongs();
+                showStatus("gespeichert: " + songText);
+            } else
+                showStatus(validSongName(songText) ? err : "Name eingeben (ohne / \\ : * ? \" < > |)");
+        } else if (b >= kBtnSongLoad && b < kBtnSongLoad + (int)songs.size()) {
+            std::string json, err;
+            if (loadSong(songs[b - kBtnSongLoad], json, err) && applyJsonText(model, json.c_str(), 0, err)) {
+                songText = songs[b - kBtnSongLoad];
+                sendSet();
+                showStatus("geladen: " + songText);
+            } else
+                showStatus(err);
+        } else if (b == kBtnChainOn) {
+            model.chainOn = !model.chainOn;
+            sendSet();
+        } else if (b == kBtnChainClear) {
+            model.chainLen = 0;
+            sendSet();
+        } else if (b >= kBtnChainAdd && b < kBtnChainAdd + kPatterns) {
+            if (model.chainLen < kMaxChain)
+                model.chain[model.chainLen++] = { b - kBtnChainAdd, 4 };
+            sendSet();
+        } else if (b >= kBtnChainDown && b < kBtnChainDel + kMaxChain) {
+            const int i = (b - kBtnChainDown) % 100;
+            if (i < model.chainLen) {
+                if (b >= kBtnChainDel)
+                    std::copy(model.chain + i + 1, model.chain + model.chainLen--, model.chain + i);
+                else
+                    model.chain[i].bars = std::max(1, std::min(64, model.chain[i].bars + (b >= kBtnChainUp ? 1 : -1)));
+                sendSet();
+            }
         } else if (b == kBtnRollMute && rollTrack >= 0) {
             setValue(kMute1 + rollTrack, muted(rollTrack) ? 0 : 1, true);
         } else if (b == kBtnRollSolo && rollTrack >= 0) {
@@ -351,6 +417,9 @@ private:
     int page = 0, editName = -1;
     std::string nameText;
     bool fillHeld = false, velMode = false;
+    bool songView = false;          // Song-Ansicht statt Raster
+    std::string songText;           // Name zum Speichern
+    std::vector<std::string> songs; // gespeicherte Songs (beim Öffnen/Speichern gelesen)
     int rollTrack = -1, rollView = 0; // offene Piano-Roll (Spur, unterster Versatz)
     int previewNote = -1, previewChannel = 0;
     uint32_t fetchedRevision = 0;
@@ -569,6 +638,67 @@ private:
             x += 86;
             pill(kBtnRotL + t, x, y + 6, 24, h - 12, "\xe2\x97\x80", th.brand, false);
             pill(kBtnRotR + t, x + 28, y + 6, 24, h - 12, "\xe2\x96\xb6", th.brand, false);
+        }
+    }
+
+    // Songs (links) und Ablauf (rechts) statt des Rasters
+    void drawSongs()
+    {
+        const float px = kMargin, py = kGridY, pw = kW - 2 * kMargin, ph = kLabelH + 8 * kRowH + 14;
+        drawPanel(px, py, pw, ph, "SONGS  \xc2\xb7  ABLAUF", th.brand);
+        const float top = py + kLabelH + 6, colW = 420;
+        // Name + Speichern
+        beginPath();
+        roundedRect(px + 14, top, colW - 120, 30, 5);
+        fillColor(kit::withAlpha(th.track, 0.95f));
+        fill();
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        fontSize(13);
+        fillColor(songText.empty() ? th.dim : th.text);
+        text(px + 24, top + 15, songText.empty() ? "Name tippen, Enter speichert" : (songText + "|").c_str(), nullptr);
+        pill(kBtnSongSave, px + colW - 96, top, 96, 30, "Speichern", th.brand, false);
+        fontSize(11);
+        fillColor(th.dim);
+        text(px + 14, top + 46, songs.empty() ? "Noch keine Songs in ~/Music/Offbeat Gearbox" : "Klick l\xc3\xa4" "dt (sofort):", nullptr);
+        for (int i = 0; i < (int)songs.size() && i < 24; ++i) {
+            const float x = px + 14 + (i / 12) * (colW / 2 + 4), y = top + 60 + (i % 12) * 27;
+            pill(kBtnSongLoad + i, x, y, colW / 2 - 4, 23, songs[i].c_str(), th.brand, songs[i] == songText);
+        }
+
+        // Ablauf
+        const float ax = px + colW + 40, aw = pw - colW - 54;
+        pill(kBtnChainOn, ax, top, 140, 30, model.chainOn ? "Ablauf AN" : "Ablauf AUS", th.light, model.chainOn);
+        pill(kBtnChainClear, ax + 150, top, 90, 30, "Leeren", th.brand, false);
+        textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+        fontSize(11);
+        fillColor(th.dim);
+        text(ax + 254, top + 9, "startet mit PLAY \xc2\xb7 Pattern-Knopf", nullptr);
+        text(ax + 254, top + 23, "\xc3\xbc" "bernimmt live bis zum n\xc3\xa4" "chsten Start", nullptr);
+        text(ax, top + 46, "Anh\xc3\xa4ngen (4 Takte):", nullptr);
+        for (int p = 0; p < kPatterns; ++p) {
+            const char name[2] = { (char)('A' + p), 0 };
+            pill(kBtnChainAdd + p, ax + 130 + p * 40, top + 34, 34, 24, name, th.brand, false);
+        }
+        const float cw = 150, ch = 30;
+        const int perRow = std::max(1, (int)(aw / (cw + 8)));
+        for (int i = 0; i < model.chainLen; ++i) {
+            const float x = ax + (i % perRow) * (cw + 8), y = top + 72 + (i / perRow) * (ch + 8);
+            beginPath();
+            roundedRect(x, y, cw, ch, 6);
+            fillColor(kit::withAlpha(th.plate, 0.95f));
+            fill();
+            strokeColor(kit::withAlpha(th.brand, 0.5f));
+            strokeWidth(1);
+            stroke();
+            char label[24];
+            std::snprintf(label, sizeof(label), "%d. %c \xc3\x97%d", i + 1, 'A' + model.chain[i].pattern, model.chain[i].bars);
+            textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+            fontSize(12);
+            fillColor(th.text);
+            text(x + 8, y + ch / 2, label, nullptr);
+            pill(kBtnChainDown + i, x + cw - 76, y + 4, 22, ch - 8, "-", th.brand, false);
+            pill(kBtnChainUp + i, x + cw - 50, y + 4, 22, ch - 8, "+", th.brand, false);
+            pill(kBtnChainDel + i, x + cw - 24, y + 4, 20, ch - 8, "\xc3\x97", th.brand, false);
         }
     }
 

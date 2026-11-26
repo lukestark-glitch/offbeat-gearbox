@@ -72,8 +72,15 @@ button:disabled{opacity:.25}
 .rr .rn.cc{color:var(--a)}
 .c.b{background:#080502}
 #roll .c.t::after{right:2px;width:40%;top:40%;height:20%}
-#snd{position:fixed;inset:0;background:rgba(13,8,4,.92);display:none;align-items:center;justify-content:center;z-index:8}
-#snd.show{display:flex}
+#snd,#song{position:fixed;inset:0;background:rgba(13,8,4,.92);display:none;align-items:center;justify-content:center;z-index:8}
+#snd.show,#song.show{display:flex}
+#song .box{width:460px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;padding:14px;border:1px solid var(--a);border-radius:18px;background:var(--pn);box-shadow:0 0 30px rgba(255,163,26,.3)}
+#song .sl{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:4px;margin:8px 0}
+#song .sl .lbl{margin-top:6px;color:var(--a)}
+#song .sl button{text-transform:none;letter-spacing:.04em;min-height:42px}
+#song .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+#song input{flex:1;min-width:120px;min-height:42px;font-size:16px}
+#song .note{font-size:12px;opacity:.7}
 #snd .box{width:420px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;padding:14px;border:1px solid var(--a);border-radius:18px;background:var(--pn);box-shadow:0 0 30px rgba(255,163,26,.3)}
 #snd .sl{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:4px;margin:8px 0}
 #snd .sl .lbl{margin-top:6px;color:var(--a)}
@@ -89,6 +96,7 @@ button:disabled{opacity:.25}
   <h1>GEARBOX REMOTE</h1>
   <button id="vel">Stärke</button>
   <button id="play">Play</button>
+  <button id="songb">SONG</button>
   <div class="disp"><span class="lbl">BPM</span><b id="bpm">--</b></div>
   <div class="disp"><span class="lbl">Swing</span><b id="swing">--</b></div>
   <span id="dot" title="Verbindung"></span><span class="lbl" id="dotl">getrennt</span>
@@ -105,6 +113,7 @@ button:disabled{opacity:.25}
 <div id="roll"></div>
 <!-- Sound-Auswahl -->
 <div id="snd"><div class="box"><div class="lbl" id="sndt">Sound</div><div class="sl" id="sndl"></div><button id="sndx">Schließen</button></div></div>
+<div id="song"><div class="box"><div class="sl" id="songl"></div><button id="songx">Schließen</button></div></div>
 <!-- PIN-Dialog -->
 <div id="pin"><div class="box">
   <div class="lbl">PIN eingeben</div>
@@ -143,7 +152,7 @@ function connect(){
   opened=false;
   es=new EventSource("/events?pin="+pin);
   es.onopen=function(){opened=true;status(true);};
-  es.addEventListener("state",function(e){try{model=JSON.parse(e.data);dirty=true;draw();}catch(x){}});
+  es.addEventListener("state",function(e){try{model=JSON.parse(e.data);dirty=true;draw();if(songOpen())renderSong();}catch(x){}});
   es.addEventListener("live",function(e){try{live=JSON.parse(e.data);status(true);dirty=true;draw();}catch(x){}});
   es.onerror=function(){
     status(false);
@@ -265,6 +274,51 @@ function openSound(t){
   $("snd").classList.add("show");
 }
 $("sndx").onclick=function(){$("snd").classList.remove("show");};
+
+// ---------- Song / Ablauf ----------
+var songDraft="";
+function songOpen(){return $("song").classList.contains("show");}
+function renderSong(){
+  if(!model)return;
+  var L=$("songl"),old=L.querySelector("input");
+  if(old)songDraft=old.value;
+  L.innerHTML="";
+  el("div","lbl","Songs",L);
+  var r=el("div","row",null,L),inp=el("input","",null,r);
+  inp.type="text";inp.maxLength=48;inp.placeholder="Name";inp.value=songDraft;
+  var sb=el("button","","Speichern",r);
+  sb.onclick=function(){
+    var n=inp.value;
+    if(!/^[^\/\\:*?"<>|.\s][^\/\\:*?"<>|]{0,47}$/.test(n)){alert("Ungültiger Name (1-48 Zeichen, keine / \\ : * ? \" < > |, nicht mit . oder Leerzeichen beginnen)");return;}
+    var ex=(model.songs||[]).indexOf(n)>=0;
+    if(ex&&!confirm("Song \""+n+"\" überschreiben?"))return;
+    send("song save "+n);songDraft="";inp.value="";
+  };
+  (model.songs||[]).forEach(function(n){
+    var b=el("button","",n,L);
+    b.onclick=function(){if(confirm("Song laden? Ungespeicherte Änderungen gehen verloren")){send("song load "+n);$("song").classList.remove("show");}};
+  });
+  el("div","lbl","Ablauf",L);
+  var on=!!model.chainOn,t=el("button",on?"on":"","Ablauf "+(on?"an":"aus"),L);
+  t.onclick=function(){send("chain on "+(on?0:1));};
+  var ch=model.chain||[];
+  ch.forEach(function(e,i){
+    var c=el("div","row",null,L);
+    el("span","lbl","\u00a0"+(i+1)+". "+"ABCDEFGH".charAt(e[0])+" ×"+e[1],c);
+    var m=el("button","","−",c);m.onclick=function(){if(e[1]>1)send("chain bars "+i+" "+(e[1]-1));};
+    var p=el("button","","+",c);p.onclick=function(){if(e[1]<64)send("chain bars "+i+" "+(e[1]+1));};
+    var d=el("button","","✕",c);d.onclick=function(){send("chain del "+i);};
+  });
+  var ar=el("div","row",null,L);
+  for(var k=0;k<8;k++)(function(k){
+    var b=el("button","","ABCDEFGH".charAt(k),ar);
+    b.onclick=function(){send("chain add "+k+" 4");};
+  })(k);
+  var cl=el("button","","Leeren",L);cl.onclick=function(){send("chain clear");};
+  el("div","note","Ablauf startet mit PLAY. Ein Pattern-Knopf übernimmt live bis zum nächsten Start.",L);
+}
+$("songb").onclick=function(){renderSong();$("song").classList.add("show");};
+$("songx").onclick=function(){$("song").classList.remove("show");};
 
 // ---------- Aktionen (optimistisch) ----------
 function cycle(t,s){

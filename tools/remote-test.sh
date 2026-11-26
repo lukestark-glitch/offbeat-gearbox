@@ -12,6 +12,7 @@ code() { curl -s -o /dev/null -w "%{http_code}" "$@"; }
 U="http://127.0.0.1:$PORT"
 
 echo "== Fernbedienung (curl, Port $PORT)"
+GEARBOX_SONG_DIR="$(mktemp -d)"; export GEARBOX_SONG_DIR
 start
 curl -s "$U/" | grep -q "GEARBOX REMOTE"; ok "Seite wird ausgeliefert" $?
 curl -s "$U/manifest.webmanifest" | grep -q '"standalone"'; ok "Manifest (Web-App)" $?
@@ -21,6 +22,15 @@ curl -s "$U/state?pin=4321" | grep -q '"gearbox":1'; ok "richtige PIN: Zustand a
 [ "$(code "$U/../../etc/passwd?pin=4321")" = 404 ]; ok "kein Dateizugriff (404)" $?
 [ "$(code -X POST --data-binary "step 0 7 5 3" "$U/cmd?pin=4321")" = 204 ]; ok "Schritt per POST gesetzt (204)" $?
 curl -s "$U/state?pin=4321" | grep -q '"steps":".....X'; ok "Schritt im Zustand sichtbar (Spur 8, Schritt 6 laut)" $?
+[ "$(code -X POST --data-binary "song save Test 1" "$U/cmd?pin=4321")" = 204 ]; ok "Song speichern (204)" $?
+[ -f "$GEARBOX_SONG_DIR/Test 1.json" ]; ok "Song-Datei existiert" $?
+curl -s "$U/state?pin=4321" | grep -q '"songs":\["Test 1"\]'; ok "Songliste im Zustand" $?
+curl -s -X POST --data-binary "step 0 0 5 3" "$U/cmd?pin=4321" > /dev/null
+curl -s -X POST --data-binary "song load Test 1" "$U/cmd?pin=4321" > /dev/null
+[ "$(curl -s "$U/state?pin=4321" | grep -o '"steps":"[^"]*"' | head -1 | cut -c10-15)" = 'X...X.' ]; ok "Song laden macht Schritt rückgängig" $?
+[ "$(code -X POST --data-binary "song save ../x" "$U/cmd?pin=4321")" = 400 ]; ok "ungültiger Songname abgelehnt (400)" $?
+curl -s -X POST --data-binary "chain add 1 2" "$U/cmd?pin=4321" > /dev/null
+curl -s "$U/state?pin=4321" | grep -q '"chain":\[\[1,2\]\]'; ok "Ablauf-Eintrag im Zustand" $?
 [ "$(code -X POST --data-binary "quatsch 1" "$U/cmd?pin=4321")" = 400 ]; ok "unbekannter Befehl abgelehnt (400)" $?
 head -c 70000 /dev/zero | tr '\0' 'a' > "${TMPDIR:-/tmp}/gearbox-big.txt"
 [ "$(code -X POST --data-binary @"${TMPDIR:-/tmp}/gearbox-big.txt" "$U/cmd?pin=4321")" = 413 ]; ok "zu große Anfrage abgelehnt (413)" $?

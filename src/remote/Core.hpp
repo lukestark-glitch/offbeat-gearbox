@@ -32,7 +32,7 @@ public:
     void publishLive(const float* seqParams, double bpm); // Anzeige-Werte des Sequencers
 
     // RemoteHost (Server-Thread)
-    std::string remoteState() override { return stateJson(); }
+    std::string remoteState() override; // Set + "songs": Liste der gespeicherten Songs
     std::string remoteLive() override;
     uint32_t remoteRevision() override { return rev; }
     bool remoteCommand(const std::string& lines, std::string& err) override { return command(lines, err, true); }

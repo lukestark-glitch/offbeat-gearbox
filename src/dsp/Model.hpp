@@ -53,10 +53,22 @@ struct Pattern {
     PatternTrack tracks[kTracks];
 };
 
+// Ablauf (Song-Modus): Patterns nacheinander, je so viele Takte; am Ende von vorn
+constexpr int kMaxChain = 32;
+struct ChainEntry {
+    int pattern = 0;
+    int bars = 4; // 1–64
+};
+
 struct Set {
     TrackConf tracks[kTracks];
     Pattern patterns[kPatterns];
+    ChainEntry chain[kMaxChain];
+    int chainLen = 0;
+    bool chainOn = false; // Ablauf beim Play-Start; ein Pattern-Knopf übernimmt live bis zum nächsten Start
 };
+
+int chainPattern(const Set& s, int64_t bar, int& entry); // Pattern im Takt bar seit Start; entry = Index im Ablauf
 
 void defaultSet(Set& s); // Kick, Bass, Hat … mit einem Bounce-Grundmuster in Pattern A
 

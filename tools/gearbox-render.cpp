@@ -202,6 +202,39 @@ int checkAll()
         expect("Spuren ohne Sound senden nichts", std::all_of(pcs.begin(), pcs.end(), [](const Ev& e) { return (e.s & 15) == 0; }));
     }
 
+    std::puts("== Ablauf (Song-Modus): A 2 Takte, B 1 Takt, Pattern-Knopf übernimmt");
+    {
+        Sim sim;
+        sim.cmd("clear 1");
+        sim.cmd("step 1 0 2 3"); // B: Kick nur auf Schritt 3
+        sim.cmd("chain add 0 2");
+        sim.cmd("chain add 1 1");
+        sim.cmd("chain on 1");
+        bool pressed = false;
+        sim.run(160, 12.0, true, [&](int64_t, double& beat) { // 32 Schläge = 8 Takte
+            if (beat >= 25.0 && !pressed) { // in Takt 7 (Ablauf wäre: A A B A A B A A)
+                sim.cmd("pattern 1");
+                pressed = true;
+            }
+        });
+        auto kicksInBar = [&](int bar) {
+            int k = 0;
+            for (const Ev& e : onsOf(sim.events, 1))
+                k += e.sample >= sampleOf(bar * 4.0, 160, sim.sr) && e.sample < sampleOf(bar * 4.0 + 4, 160, sim.sr);
+            return k;
+        };
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "Kicks je Takt: %d %d %d %d %d %d (erwartet 4 4 1 4 4 1)", kicksInBar(0), kicksInBar(1),
+                      kicksInBar(2), kicksInBar(3), kicksInBar(4), kicksInBar(5));
+        expect(buf, kicksInBar(0) == 4 && kicksInBar(1) == 4 && kicksInBar(2) == 1 && kicksInBar(3) == 4 && kicksInBar(4) == 4
+                        && kicksInBar(5) == 1);
+        expect("Pattern-Knopf in Takt 7: ab Takt 8 bleibt B (Ablauf aus)", kicksInBar(7) == 1);
+        Set back;
+        std::string err;
+        const bool ok = applyJsonText(back, setToJson(sim.set).c_str(), 0, err);
+        expect("Ablauf übersteht JSON", ok && back.chainOn && back.chainLen == 2 && back.chain[1].pattern == 1 && back.chain[1].bars == 1);
+    }
+
     std::puts("== Polymetrik: Spur mit 3 Schritten gegen 16");
     {
         Sim sim;

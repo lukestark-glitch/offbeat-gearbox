@@ -11,7 +11,8 @@ FILES_DSP = \
 	../src/dsp/Params.cpp \
 	../src/dsp/ParamText.cpp \
 	../src/remote/Core.cpp \
-	../src/remote/Server.cpp
+	../src/remote/Server.cpp \
+	../src/remote/Songs.cpp
 
 # Model/Params/Server nutzt auch die UI; sie steckt bei VST3 und LV2 (eine Datei) im selben Binary.
 FILES_UI = GearboxUI.cpp

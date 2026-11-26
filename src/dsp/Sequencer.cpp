@@ -94,12 +94,19 @@ int Sequencer::panic(MidiOut* out, int max, uint32_t frame)
     return n;
 }
 
+int Sequencer::chainWant(int64_t g) const
+{
+    int entry;
+    const int p = chainPattern(*set, (int64_t)std::floor((double)(g - chainStart) / kBarSteps), entry);
+    return p < 0 ? (int)params[kPattern] : p;
+}
+
 void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t frames, MidiOut* out, int& n, int max)
 {
     if (!set)
         return;
     if (g % kBarSteps == 0) { // Taktanfang: angefordertes Pattern übernehmen
-        const int want = (int)params[kPattern];
+        const int want = chainActive ? chainWant(g) : (int)params[kPattern];
         if (want != playingPattern) {
             playingPattern = want;
             patternStart = g;
@@ -232,8 +239,19 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
         lastFired = g0 - 1;
         patternStart = (int64_t)std::floor((double)g0 / kBarSteps) * kBarSteps;
         playingPattern = (int)params[kPattern]; // Start: gewähltes Pattern sofort
+        chainActive = set && set->chainOn && set->chainLen > 0;
+        chainStart = patternStart;
+        lastPatternParam = params[kPattern];
+        if (chainActive)
+            playingPattern = chainWant(patternStart);
         std::fill(sentProgram, sentProgram + kTracks, -1); // Sounds beim Start immer senden
     }
+    if (params[kPattern] != lastPatternParam) { // Pattern-Knopf: live übernehmen, Ablauf aus bis zum nächsten Start
+        chainActive = false;
+        lastPatternParam = params[kPattern];
+    }
+    if (chainActive && (!set->chainOn || set->chainLen == 0))
+        chainActive = false;
     const double b1 = b0 + frames * bpf;
     // fällig, wenn der gerundete Sample-Index in diesen Block fällt (nicht t < b1: Rundung an der Blockgrenze)
     auto due = [&](double t) { return std::floor((t - b0) / bpf + 0.5) < (double)frames; };
@@ -267,7 +285,11 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
     if (!hostPlaying)
         internalBeat = b1;
     params[kPlayingPattern] = (float)playingPattern;
-    params[kQueuedPattern] = params[kPattern];
+    if (chainActive && set) {
+        const int64_t next = (lastFired / kBarSteps + 1) * kBarSteps; // nächster Taktanfang
+        params[kQueuedPattern] = (float)chainWant(next);
+    } else
+        params[kQueuedPattern] = params[kPattern];
     return n;
 }
 

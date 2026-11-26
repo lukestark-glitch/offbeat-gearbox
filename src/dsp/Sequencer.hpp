@@ -60,7 +60,11 @@ private:
     bool hostPlaying = false, running = false, wasHost = false, playWasOn = false;
     double hostBeat = 0.0, hostTempo = 0.0, internalBeat = 0.0, expectedBeat = -1.0;
     int64_t lastFired = -1, patternStart = 0;
-    int sentProgram[kTracks]; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
+    int sentProgram[kTracks];
+    bool chainActive = false;   // Ablauf läuft (seit Play-Start, bis ein Pattern-Knopf übernimmt)
+    int64_t chainStart = 0;     // Schritt, an dem der Ablauf begann (Taktanfang)
+    float lastPatternParam = 0; // erkennt Pattern-Knöpfe während des Ablaufs
+    int chainWant(int64_t g) const; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
     int playingPattern = 0;
 
     // klingende Noten je Spur: active[Spur][Note] = Kanal + 1 (0 = aus); mehrere bei Akkorden

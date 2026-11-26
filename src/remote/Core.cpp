@@ -1,4 +1,6 @@
 #include "Core.hpp"
+#include "Json.hpp"
+#include "Songs.hpp"
 
 #include <cstdio>
 #include <sstream>
@@ -59,6 +61,26 @@ bool Core::command(const std::string& lines, std::string& err, bool allowParams)
             line.pop_back();
         if (line.empty() || line[0] == '#') // '#': Kommentar/Zähler
             continue;
+        if (line.compare(0, 5, "song ") == 0) { // song save NAME | song load NAME (Datei-Zugriff, nie im Audio-Thread)
+            std::istringstream sl(line.substr(5));
+            std::string op, name, json, e;
+            sl >> op;
+            std::getline(sl >> std::ws, name);
+            bool done = false;
+            if (op == "save")
+                edited |= done = saveSong(name, setToJson(shadow), e); // neue Revision: Geräte holen die Song-Liste
+            else if (op == "load") {
+                done = loadSong(name, json, e) && applyJsonText(shadow, json.c_str(), 0, e);
+                edited |= done;
+            } else
+                e = "song save NAME | song load NAME";
+            if (!done) {
+                if (err.empty())
+                    err = e;
+                ok = false;
+            }
+            continue;
+        }
         int id = -1;
         float value = 0.0f;
         std::string e;
@@ -138,6 +160,20 @@ std::string Core::remoteLive()
         n += std::snprintf(buf + n, sizeof(buf) - n, "%s%d", t ? "," : "", (mutes >> t) & 1);
     std::snprintf(buf + n, sizeof(buf) - n, "]}");
     return buf;
+}
+
+} // namespace offbeat
+
+namespace offbeat {
+
+std::string Core::remoteState()
+{
+    std::string j = stateJson(), list = ",\"songs\":[";
+    const std::vector<std::string> songs = listSongs();
+    for (size_t i = 0; i < songs.size(); ++i)
+        list += (i ? "," : "") + jsonQuote(songs[i]);
+    j.insert(j.size() - 1, list + "]");
+    return j;
 }
 
 } // namespace offbeat

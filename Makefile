@@ -7,7 +7,7 @@
 
 NAME = offbeat-gearbox
 CXX ?= c++
-SRC = src/dsp/Sequencer.cpp src/dsp/Model.cpp src/dsp/Json.cpp src/dsp/Params.cpp src/remote/Core.cpp src/remote/Server.cpp
+SRC = src/dsp/Sequencer.cpp src/dsp/Model.cpp src/dsp/Json.cpp src/dsp/Params.cpp src/remote/Core.cpp src/remote/Server.cpp src/remote/Songs.cpp
 HDR = $(wildcard src/dsp/*.hpp src/remote/*.hpp)
 PLUGINS_DIR = $(HOME)/Library/Audio/Plug-Ins
 ifeq ($(OS),Windows_NT)

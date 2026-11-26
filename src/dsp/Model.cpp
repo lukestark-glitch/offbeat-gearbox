@@ -186,6 +186,11 @@ std::string setToJson(const Set& s)
             o += ",";
         writePattern(o, s.patterns[p]);
     }
+    o += "],\"chainOn\":";
+    o += s.chainOn ? "true" : "false";
+    o += ",\"chain\":[";
+    for (int i = 0; i < s.chainLen; ++i)
+        o += (i ? ",[" : "[") + std::to_string(s.chain[i].pattern) + "," + std::to_string(s.chain[i].bars) + "]";
     return o + "]}";
 }
 
@@ -213,12 +218,40 @@ bool applyJsonText(Set& s, const char* json, int targetPattern, std::string& err
             for (int p = 0; p < kPatterns && p < (int)pats->arr.size(); ++p)
                 if (!readPattern(next.patterns[p], pats->arr[p], err))
                     return false;
+        if (const JsonValue* x = root.get("chainOn"); x && x->type == JsonValue::Bool)
+            next.chainOn = x->b;
+        if (const JsonValue* ch = root.get("chain"); ch && ch->type == JsonValue::Array) {
+            next.chainLen = 0;
+            for (const JsonValue& e : ch->arr)
+                if (next.chainLen < kMaxChain && e.type == JsonValue::Array && e.arr.size() == 2 && e.arr[0].type == JsonValue::Number
+                    && e.arr[1].type == JsonValue::Number)
+                    next.chain[next.chainLen++] = { std::clamp((int)e.arr[0].num, 0, kPatterns - 1), std::clamp((int)e.arr[1].num, 1, 64) };
+        }
     } else {
         err = "weder \"pattern\" noch \"patterns\" gefunden";
         return false;
     }
     s = next;
     return true;
+}
+
+int chainPattern(const Set& s, int64_t bar, int& entry)
+{
+    int total = 0;
+    for (int i = 0; i < s.chainLen; ++i)
+        total += s.chain[i].bars;
+    entry = -1;
+    if (total <= 0)
+        return -1;
+    int64_t b = ((bar % total) + total) % total;
+    for (int i = 0; i < s.chainLen; ++i) {
+        if (b < s.chain[i].bars) {
+            entry = i;
+            return s.chain[i].pattern;
+        }
+        b -= s.chain[i].bars;
+    }
+    return -1;
 }
 
 CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float& paramValue, std::string& err)
@@ -235,6 +268,26 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
     };
     int p, t, st;
     double x;
+    if (cmd == "chain") { // chain add P TAKTE | del I | bars I TAKTE | clear | on 0/1
+        std::string sub;
+        in >> sub;
+        int i = 0, v = 0;
+        if (sub == "add" && in >> i >> v && i >= 0 && i < kPatterns && s.chainLen < kMaxChain)
+            s.chain[s.chainLen++] = { i, std::clamp(v, 1, 64) };
+        else if (sub == "del" && in >> i && i >= 0 && i < s.chainLen)
+            std::copy(s.chain + i + 1, s.chain + s.chainLen--, s.chain + i);
+        else if (sub == "bars" && in >> i >> v && i >= 0 && i < s.chainLen)
+            s.chain[i].bars = std::clamp(v, 1, 64);
+        else if (sub == "clear")
+            s.chainLen = 0;
+        else if (sub == "on" && in >> v)
+            s.chainOn = v != 0;
+        else {
+            err = "chain: add P TAKTE | del I | bars I TAKTE | clear | on 0/1";
+            return CommandResult::Error;
+        }
+        return CommandResult::Edited;
+    }
     if (cmd == "step" || cmd == "tie") {
         if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !idx(st, kMaxSteps, "Schritt") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
