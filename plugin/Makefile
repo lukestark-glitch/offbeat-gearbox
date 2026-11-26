@@ -41,6 +41,12 @@ $(DPF_BUILD_DIR)/GearboxImage.h: ../assets/gearbox.png
 	cd ../assets && xxd -i gearbox.png > $(abspath $@)
 
 $(DPF_BUILD_DIR)/../src/remote/Server.cpp.o: $(DPF_BUILD_DIR)/RemotePage.h
+
+# Objekte aus ../src liegen für alle Build-Ordner (Plugin, Standalone) unter build/src; DPFs .d-Dateien
+# nennen nur den Ordner, der sie erzeugt hat. Darum hier ausdrücklich: neu bauen, wenn sich ein Header ändert.
+SRC_HEADERS = $(wildcard ../src/dsp/*.hpp ../src/remote/*.hpp)
+$(patsubst ../%,$(DPF_BUILD_DIR)/../%.o,$(filter ../src/%,$(FILES_DSP))): $(SRC_HEADERS)
+$(DPF_BUILD_DIR)/GearboxPlugin.cpp.o $(DPF_BUILD_DIR)/GearboxUI.cpp.o: $(SRC_HEADERS)
 $(DPF_BUILD_DIR)/GearboxUI.cpp.o: $(DPF_BUILD_DIR)/GearboxImage.h
 
 TARGETS += vst3

@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <sstream>
 
@@ -19,17 +20,18 @@ struct DefaultTrack {
     const char* name;
     int note;
     const char* steps;
+    bool melody;
 };
 // Noten wie die Vorschau von Offbeat Engine/Topline (F-Moll, Hard Bounce)
 const DefaultTrack kDefaults[kTracks] = {
-    { "Kick", 29, "X...X...X...X..." },     // F1 auf jedem Schlag
-    { "Bass", 41, "..x...x...x...x." },     // F2 auf dem Offbeat
-    { "Hat", 54, "g.x.g.x.g.x.g.x." },      // F#3
-    { "Open Hat", 58, "..........x....." },  // A#3
-    { "Stab", 65, "......x.......x." },     // F4
-    { "Pad", 53, "................" },      // F3
-    { "Lead", 77, "................" },     // F5
-    { "Perc", 49, "................" },
+    { "Kick", 29, "X...X...X...X...", false },     // F1 auf jedem Schlag
+    { "Bass", 41, "..x...x...x...x.", true },      // F2 auf dem Offbeat
+    { "Hat", 54, "g.x.g.x.g.x.g.x.", false },      // F#3
+    { "Open Hat", 58, "..........x.....", false },  // A#3
+    { "Stab", 65, "......x.......x.", true },      // F4
+    { "Pad", 53, "................", true },       // F3
+    { "Lead", 77, "................", true },      // F5
+    { "Perc", 49, "................", false },
 };
 
 int velFromChar(char c)
@@ -53,6 +55,7 @@ bool readTrackConf(TrackConf& t, const JsonValue& v)
     if (const JsonValue* x = v.get("gate"); x && x->type == JsonValue::Number) t.gate = std::clamp((float)x->num, 0.05f, 0.95f);
     if (const JsonValue* x = v.get("volume"); x && x->type == JsonValue::Number) t.volume = std::clamp((float)x->num, 0.0f, 1.0f);
     if (const JsonValue* x = v.get("solo"); x && x->type == JsonValue::Bool) t.solo = x->b;
+    if (const JsonValue* x = v.get("melody"); x && x->type == JsonValue::Bool) t.melody = x->b;
     return true;
 }
 
@@ -80,6 +83,18 @@ bool readPattern(Pattern& p, const JsonValue& v, std::string& err)
         if (const JsonValue* x = tv.get("ties"); x && x->type == JsonValue::String)
             for (int s = 0; s < kMaxSteps; ++s)
                 pt.steps[s].tie = s < (int)x->str.size() && x->str[s] == '~';
+        if (const JsonValue* x = tv.get("keys"); x && x->type == JsonValue::Object) { // {"Schritt":[Versatz, …]}
+            for (Step& st : pt.steps)
+                st.keys = 0;
+            for (const auto& kv : x->obj) {
+                const int s = std::atoi(kv.first.c_str());
+                if (s < 0 || s >= kMaxSteps || kv.second.type != JsonValue::Array)
+                    continue;
+                for (const JsonValue& k : kv.second.arr)
+                    if (k.type == JsonValue::Number)
+                        pt.steps[s].keys |= keyBit((int)k.num);
+            }
+        }
     }
     return true;
 }
@@ -94,7 +109,24 @@ void writePattern(std::string& o, const Pattern& p)
             steps[s] = kVelChars[pt.steps[s].vel & 3], ties[s] = pt.steps[s].tie ? '~' : '.';
         char buf[48];
         std::snprintf(buf, sizeof(buf), "%s{\"length\":%d,\"steps\":\"", t ? "," : "", pt.length);
-        o += buf + steps + "\",\"ties\":\"" + ties + "\"}";
+        o += buf + steps + "\",\"ties\":\"" + ties + "\"";
+        std::string keys;
+        for (int s = 0; s < kMaxSteps; ++s)
+            if (pt.steps[s].keys) {
+                std::snprintf(buf, sizeof(buf), "%s\"%d\":[", keys.empty() ? "" : ",", s);
+                keys += buf;
+                bool first = true;
+                for (int k = 0; k < kKeyCount; ++k)
+                    if (pt.steps[s].keys >> k & 1) {
+                        std::snprintf(buf, sizeof(buf), "%s%d", first ? "" : ",", k + kKeyLow);
+                        keys += buf;
+                        first = false;
+                    }
+                keys += "]";
+            }
+        if (!keys.empty())
+            o += ",\"keys\":{" + keys + "}";
+        o += "}";
     }
     o += "]}";
 }
@@ -108,6 +140,7 @@ void defaultSet(Set& s)
         std::snprintf(c.name, sizeof(c.name), "%s", kDefaults[t].name);
         c.channel = t + 1;
         c.note = kDefaults[t].note;
+        c.melody = kDefaults[t].melody;
         PatternTrack& pt = s.patterns[0].tracks[t];
         for (int k = 0; k < 16; ++k)
             pt.steps[k].vel = (uint8_t)velFromChar(kDefaults[t].steps[k]);
@@ -119,9 +152,10 @@ std::string setToJson(const Set& s)
     std::string o = "{\"gearbox\":1,\"tracks\":[";
     for (int t = 0; t < kTracks; ++t) {
         const TrackConf& c = s.tracks[t];
-        char buf[160];
-        std::snprintf(buf, sizeof(buf), "%s{\"name\":%s,\"channel\":%d,\"note\":%d,\"gate\":%g,\"volume\":%g,\"solo\":%s}",
-                      t ? "," : "", jsonQuote(c.name).c_str(), c.channel, c.note, c.gate, c.volume, c.solo ? "true" : "false");
+        char buf[200];
+        std::snprintf(buf, sizeof(buf), "%s{\"name\":%s,\"channel\":%d,\"note\":%d,\"gate\":%g,\"volume\":%g,\"solo\":%s,\"melody\":%s}",
+                      t ? "," : "", jsonQuote(c.name).c_str(), c.channel, c.note, c.gate, c.volume, c.solo ? "true" : "false",
+                      c.melody ? "true" : "false");
         o += buf;
     }
     o += "],\"patterns\":[";
@@ -191,6 +225,20 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
             step.tie = x >= 0.5;
         return CommandResult::Edited;
     }
+    if (cmd == "keys") { // keys P T S [Versatz,Versatz,…] – leer = Spur-Note
+        if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !idx(st, kMaxSteps, "Schritt"))
+            return CommandResult::Error;
+        std::string list;
+        in >> list;
+        uint64_t keys = 0;
+        for (size_t at = 0; at < list.size();) {
+            const size_t end = std::min(list.find(',', at), list.size());
+            keys |= keyBit(std::atoi(list.substr(at, end - at).c_str()));
+            at = end + 1;
+        }
+        s.patterns[p].tracks[t].steps[st].keys = keys;
+        return CommandResult::Edited;
+    }
     if (cmd == "length" || cmd == "rotate") {
         if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
@@ -231,7 +279,7 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         copyName(s.tracks[t].name, name);
         return CommandResult::Edited;
     }
-    if (cmd == "note" || cmd == "channel" || cmd == "gate" || cmd == "volume" || cmd == "solo") {
+    if (cmd == "note" || cmd == "channel" || cmd == "gate" || cmd == "volume" || cmd == "solo" || cmd == "melody") {
         if (!idx(t, kTracks, "Spur") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
             return CommandResult::Error;
@@ -241,7 +289,8 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         else if (cmd == "channel") c.channel = std::clamp((int)x, 1, 16);
         else if (cmd == "gate") c.gate = std::clamp((float)x, 0.05f, 0.95f);
         else if (cmd == "volume") c.volume = std::clamp((float)x, 0.0f, 1.0f);
-        else c.solo = x >= 0.5;
+        else if (cmd == "solo") c.solo = x >= 0.5;
+        else c.melody = x >= 0.5;
         return CommandResult::Edited;
     }
     if (cmd == "mute") {

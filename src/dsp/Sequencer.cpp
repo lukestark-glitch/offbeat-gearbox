@@ -13,7 +13,6 @@ constexpr int kBarSteps = 16;  // 4/4
 Sequencer::Sequencer()
 {
     applyDefaults(params);
-    std::fill(noteOn, noteOn + kTracks, -1);
     for (Pending& p : pending)
         p.active = false;
 }
@@ -58,14 +57,27 @@ void Sequencer::schedule(double beat, uint8_t status, uint8_t d1, uint8_t d2, in
         }
 }
 
+void Sequencer::noteOff(int track, int note, MidiOut* out, int& n, int max, uint32_t frame)
+{
+    if (!active[track][note])
+        return;
+    emit(out, n, max, frame, (uint8_t)(0x80 | (active[track][note] - 1)), (uint8_t)note, 0);
+    active[track][note] = 0;
+    for (Pending& p : pending) // geplantes Ende dieser Note verwerfen
+        if (p.active && p.track == track && p.d1 == note && (p.status & 0xf0) == 0x80)
+            p.active = false;
+}
+
 void Sequencer::stopAll(MidiOut* out, int& n, int max, uint32_t frame)
 {
     for (Pending& p : pending)
         p.active = false;
     for (int t = 0; t < kTracks; ++t) {
-        if (noteOn[t] >= 0)
-            emit(out, n, max, frame, (uint8_t)(0x80 | noteCh[t]), (uint8_t)noteOn[t], 0);
-        noteOn[t] = -1;
+        for (int k = 0; k < 128; ++k)
+            if (active[t][k]) {
+                emit(out, n, max, frame, (uint8_t)(0x80 | (active[t][k] - 1)), (uint8_t)k, 0);
+                active[t][k] = 0;
+            }
         tieHold[t] = false;
     }
     for (int c = 0; c < 16; ++c)
@@ -109,34 +121,65 @@ void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t fr
             tieHold[tr] = false;
             continue;
         }
-        const uint8_t ch = (uint8_t)(c.channel - 1), note = (uint8_t)c.note;
+        const uint8_t ch = (uint8_t)(c.channel - 1);
         const int vel = std::clamp((int)std::lround(kVelocityValues[step.vel] * c.volume), 1, 127);
         const double len = (step.tie ? kStep : 0.0) + c.gate * kStep; // Tie: hält über den nächsten Schritt
-        // gleiche Note läuft gebunden weiter: kein neuer Anschlag, nur das Ende verschieben
-        if (tieHold[tr] && noteOn[tr] == note && noteCh[tr] == ch && !fill) {
-            for (Pending& p : pending)
-                if (p.active && p.track == tr && (p.status & 0xf0) == 0x80)
-                    p.beat = t + len;
-            tieHold[tr] = step.tie;
+
+        // Noten des Schritts: Spur-Note oder Akkord (höchstens kMaxChord, von unten)
+        int notes[kMaxChord], count = 0;
+        if (step.keys == 0)
+            notes[count++] = c.note;
+        for (int k = 0; k < kKeyCount && count < kMaxChord; ++k)
+            if (step.keys >> k & 1) {
+                const int note = c.note + k + kKeyLow;
+                if (note >= 0 && note < 128)
+                    notes[count++] = note;
+            }
+        auto inStep = [&](int note) {
+            for (int i = 0; i < count; ++i)
+                if (notes[i] == note)
+                    return true;
+            return false;
+        };
+
+        if (fill) { // Rolle: zwei 32tel, die zweite etwas lauter
+            for (int k = 0; k < 128; ++k)
+                noteOff(tr, k, out, n, max, frame);
+            for (int i = 0; i < count; ++i) {
+                const uint8_t note = (uint8_t)notes[i];
+                emit(out, n, max, frame, (uint8_t)(0x90 | ch), note, (uint8_t)vel);
+                active[tr][note] = (uint8_t)(ch + 1);
+                schedule(t + 0.45 * kStep, (uint8_t)(0x80 | ch), note, 0, tr);
+                schedule(t + 0.5 * kStep, (uint8_t)(0x90 | ch), note, (uint8_t)std::min(127, vel + 12), tr);
+                schedule(t + 0.95 * kStep, (uint8_t)(0x80 | ch), note, 0, tr);
+            }
+            channelUsed[ch] = true;
+            tieHold[tr] = false;
             continue;
         }
-        if (noteOn[tr] >= 0) { // klingende Note der Spur zuerst beenden
-            emit(out, n, max, frame, (uint8_t)(0x80 | noteCh[tr]), (uint8_t)noteOn[tr], 0);
-            for (Pending& p : pending)
-                if (p.active && p.track == tr)
-                    p.active = false;
-        }
-        emit(out, n, max, frame, (uint8_t)(0x90 | ch), note, (uint8_t)vel);
-        noteOn[tr] = note, noteCh[tr] = ch, channelUsed[ch] = true;
-        if (fill) { // Rolle: zwei 32tel, die zweite etwas lauter
-            schedule(t + 0.45 * kStep, (uint8_t)(0x80 | ch), note, 0, tr);
-            schedule(t + 0.5 * kStep, (uint8_t)(0x90 | ch), note, (uint8_t)std::min(127, vel + 12), tr);
-            schedule(t + 0.95 * kStep, (uint8_t)(0x80 | ch), note, 0, tr);
-            tieHold[tr] = false;
-        } else {
+        const bool legato = tieHold[tr];
+        if (!legato) // neuer Anschlag: alles der Spur zuerst beenden
+            for (int k = 0; k < 128; ++k)
+                noteOff(tr, k, out, n, max, frame);
+        for (int i = 0; i < count; ++i) {
+            const uint8_t note = (uint8_t)notes[i];
+            if (legato && active[tr][note] == ch + 1) { // gebunden, gleiche Tonhöhe: nur das Ende verschieben
+                for (Pending& p : pending)
+                    if (p.active && p.track == tr && p.d1 == note && (p.status & 0xf0) == 0x80)
+                        p.beat = t + len;
+                continue;
+            }
+            noteOff(tr, note, out, n, max, frame);
+            emit(out, n, max, frame, (uint8_t)(0x90 | ch), note, (uint8_t)vel);
+            active[tr][note] = (uint8_t)(ch + 1);
             schedule(t + len, (uint8_t)(0x80 | ch), note, 0, tr);
-            tieHold[tr] = step.tie;
         }
+        if (legato) // gebunden, andere Tonhöhe: alte Noten erst nach dem neuen Anschlag beenden (Glide)
+            for (int k = 0; k < 128; ++k)
+                if (active[tr][k] && !inStep(k))
+                    noteOff(tr, k, out, n, max, frame);
+        channelUsed[ch] = true;
+        tieHold[tr] = step.tie;
     }
 }
 
@@ -157,7 +200,8 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
     if (!nowRunning) {
         for (int t = 0; t < kTracks; ++t)
             params[kStep1 + t] = -1.0f;
-        params[kQueuedPattern] = params[kPattern];
+        playingPattern = (int)params[kPattern]; // im Stillstand gilt die Auswahl sofort
+        params[kPlayingPattern] = params[kQueuedPattern] = params[kPattern];
         return n;
     }
 
@@ -200,10 +244,10 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
             Pending& p = pending[pi];
             const uint32_t frame = std::min<uint32_t>(frames - 1, (uint32_t)std::max(0.0, std::floor((p.beat - b0) / bpf + 0.5)));
             emit(out, n, max, frame, p.status, p.d1, p.d2);
-            if ((p.status & 0xf0) == 0x80 && p.track >= 0 && noteOn[p.track] == p.d1)
-                noteOn[p.track] = -1;
+            if ((p.status & 0xf0) == 0x80 && p.track >= 0)
+                active[p.track][p.d1] = 0;
             else if ((p.status & 0xf0) == 0x90 && p.track >= 0)
-                noteOn[p.track] = p.d1;
+                active[p.track][p.d1] = (uint8_t)((p.status & 15) + 1);
             p.active = false;
         } else {
             fireStep(g, tg, b0, bpf, frames, out, n, max);

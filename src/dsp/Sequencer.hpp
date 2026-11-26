@@ -50,6 +50,7 @@ private:
     void schedule(double beat, uint8_t status, uint8_t d1, uint8_t d2, int track);
     void emit(MidiOut* out, int& n, int max, uint32_t frame, uint8_t s, uint8_t d1, uint8_t d2);
     double stepTime(int64_t g) const; // Beginn von Schritt g in Schlägen (mit Swing)
+    void noteOff(int track, int note, MidiOut* out, int& n, int max, uint32_t frame);
 
     float params[kParamCount];
     float sr = 48000.0f;
@@ -61,10 +62,9 @@ private:
     int64_t lastFired = -1, patternStart = 0;
     int playingPattern = 0;
 
-    // Noten: je Spur höchstens eine klingende Note (plus Pending-Note-Off)
+    // klingende Noten je Spur: active[Spur][Note] = Kanal + 1 (0 = aus); mehrere bei Akkorden
     bool tieHold[kTracks] = {};
-    int noteOn[kTracks]; // klingende Note je Spur (−1 = keine), Kanal in noteCh
-    uint8_t noteCh[kTracks] = {};
+    uint8_t active[kTracks][128] = {};
     bool channelUsed[16] = {};
     Pending pending[kMaxPending];
 };

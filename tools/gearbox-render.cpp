@@ -209,6 +209,38 @@ int checkAll()
         expect("Schritt 1+2 gebunden: ein Anschlag pro Takt, Ende nach Schritt 2 + Gate", b.size() == 1 && off == sampleOf(0.25 + 0.5 * 0.25, 160, sim.sr));
     }
 
+    std::puts("== Melodie: Akkord und Glide");
+    {
+        Sim sim;
+        sim.cmd("clear 0");
+        sim.cmd("step 0 6 0 2");
+        sim.cmd("keys 0 6 0 0,3,7"); // F5-Moll-Akkord auf Schritt 1
+        sim.cmd("step 0 6 4 2");
+        sim.cmd("keys 0 6 4 0");
+        sim.cmd("tie 0 6 4 1");
+        sim.cmd("step 0 6 5 2");
+        sim.cmd("keys 0 6 5 2"); // gebunden zur großen Sekunde: Glide
+        sim.run(160, 1.4);
+        const std::vector<Ev> lead = onsOf(sim.events, 7);
+        bool chord = lead.size() >= 3 && lead[0].sample == 0 && lead[1].sample == 0 && lead[2].sample == 0 &&
+                     lead[0].d1 == 77 && lead[1].d1 == 80 && lead[2].d1 == 84;
+        expect("Akkord: drei Noten gleichzeitig (F5, G#5, C6)", chord);
+        // Glide: neue Note (79) kommt vor dem Ende der alten (77), beide am Anfang von Schritt 6
+        int64_t onAt = -1, offAt = -1;
+        size_t onIdx = 0, offIdx = 0;
+        for (size_t i = 0; i < sim.events.size(); ++i) {
+            const Ev& e = sim.events[i];
+            if ((e.s & 15) != 6)
+                continue;
+            if ((e.s & 0xf0) == 0x90 && e.d1 == 79 && onAt < 0)
+                onAt = e.sample, onIdx = i;
+            if ((e.s & 0xf0) == 0x80 && e.d1 == 77 && e.sample > 0 && offAt < 0 && e.sample >= sampleOf(1.0, 160, sim.sr))
+                offAt = e.sample, offIdx = i;
+        }
+        expect("Glide: gebundene neue Tonhöhe überlappt die alte (Note-On vor Note-Off, Schritt 6)",
+               onAt == sampleOf(1.25, 160, sim.sr) && offAt == onAt && onIdx < offIdx);
+    }
+
     std::puts("== Keine hängenden Noten (Stop, Pattern-Wechsel, Mutes, Fill, Loop-Sprung, Live-Änderungen)");
     {
         Sim sim;
@@ -223,7 +255,8 @@ int checkAll()
         sim.run(165, 30.0, true, [&](int64_t pos, double& beat) {
             if (pos % (512 * 37) == 0) {
                 char c[48];
-                switch (next() % 7) {
+                switch (next() % 8) {
+                case 7: std::snprintf(c, sizeof(c), "keys %u %u %u %d,%d", next() % 2, next() % 8, next() % 16, (int)(next() % 48) - 24, (int)(next() % 48) - 24); break;
                 case 0: std::snprintf(c, sizeof(c), "pattern %u", next() % 2); break;
                 case 1: std::snprintf(c, sizeof(c), "mute %u %u", next() % 8, next() % 2); break;
                 case 2: std::snprintf(c, sizeof(c), "fill %u", next() % 2); break;

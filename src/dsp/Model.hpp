@@ -14,10 +14,16 @@ constexpr int kTracks = 8, kPatterns = 8, kMaxSteps = 64;
 enum Velocity : uint8_t { kVelOff, kVelGhost, kVelNormal, kVelLoud };
 extern const int kVelocityValues[4]; // MIDI-Velocity je Stufe: 0, 50, 90, 110
 
+// Melodie: Tonhöhen je Schritt relativ zur Spur-Note, −24 … +23 Halbtöne (Bit k = Versatz k − 24).
+constexpr int kKeyLow = -24, kKeyCount = 48, kMaxChord = 8;
+
 struct Step {
     uint8_t vel = kVelOff;
-    bool tie = false; // Note hält über den nächsten Schritt (legato, kein neuer Anschlag)
+    bool tie = false;  // Note hält über den nächsten Schritt (legato; andere Tonhöhe = Glide im Synth)
+    uint64_t keys = 0; // gesetzte Bits = Noten des Schritts (Akkord); 0 = Spur-Note
 };
+
+inline uint64_t keyBit(int offset) { return offset >= kKeyLow && offset < kKeyLow + kKeyCount ? 1ull << (offset - kKeyLow) : 0; }
 
 struct TrackConf { // gilt für alle Patterns
     char name[24] = "";
@@ -26,6 +32,7 @@ struct TrackConf { // gilt für alle Patterns
     float gate = 0.5f;   // Notenlänge in Schritten (0,05–0,95)
     float volume = 1.0f; // skaliert die Velocity (0–1)
     bool solo = false;
+    bool melody = false; // Melodie-Spur: Schritte mit eigenen Tonhöhen/Akkorden (Oberfläche: Tastatur)
 };
 
 struct PatternTrack {
