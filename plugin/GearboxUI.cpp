@@ -3,9 +3,10 @@
 // unten Remote (iPad) und Kopieren/Einfügen von Pattern und Set als JSON. Look: OffbeatKit.hpp.
 //
 // Bedienung im Raster: Klick setzt/löscht einen normalen Schritt; mit STÄRKE an schaltet er
-// aus → normal → laut → Ghost → aus. Rechtsklick bindet (Tie). Melodie-Spuren: Klick öffnet die
-// Tastatur des Schritts (mehrere Tasten = Akkord; die Taste erklingt über den MIDI-Ausgang).
-// Kanal/Note/Gate/Lautstärke: Klick +, Rechtsklick −, Mausrad. Name: Doppelklick, tippen, Enter.
+// aus → normal → laut → Ghost → aus. Rechtsklick bindet (Tie). Klick auf den Namen einer Melodie-Spur
+// öffnet ihre Piano-Roll (Tonhöhen × Schritte; Klick setzt/löscht eine Note, mehrere = Akkord, die Note
+// erklingt über den MIDI-Ausgang). Kanal/Note/Gate/Lautstärke: Klick +, Rechtsklick −, Mausrad.
+// Name: Rechtsklick, tippen, Enter.
 // Raster-Änderungen gehen als ganzes Set per setState("set") an das Plugin; Änderungen vom iPad holt die
 // Oberfläche über localhost (GET /state), sobald der Revisionszähler sich ändert.
 #include "GearboxImage.h" // aus assets/gearbox.png erzeugt (xxd -i), siehe plugin/Makefile
@@ -30,8 +31,8 @@ enum Button {
     kBtnPlay = 2800, kBtnFill = 2801, kBtnRemote = 2802, kBtnCopyPattern = 2803, kBtnCopySet = 2804,
     kBtnPasteGrid = 2805, kBtnClear = 2806, kBtnVelMode = 2807,
     kBtnChannel = 3000, kBtnNote = 3100, kBtnGate = 3200, kBtnVolume = 3300, // + Spur
-    kBtnKey = 4000, // + Versatz − kKeyLow (Tastatur des Schritts)
-    kBtnOctDown = 4100, kBtnOctUp = 4101, kBtnStepRemove = 4102, kBtnStepDone = 4103, kBtnPopup = 4104,
+    kBtnOctDown = 4100, kBtnOctUp = 4101, kBtnRollBack = 4102, kBtnRollMute = 4103, kBtnRollSolo = 4104,
+    kBtnRoll = 5000, // + (Versatz − kKeyLow) · 64 + Schritt (Zelle der Piano-Roll)
 };
 
 std::string noteName(int note)
@@ -123,10 +124,11 @@ protected:
             const bool enabled = k * 16 < maxLength();
             pill(kBtnPage + k, kMargin + 904 + k * 40, ty, 34, 30, label, enabled ? th.brand : th.track, k == page);
         }
-        drawGrid();
+        if (rollTrack >= 0)
+            drawRoll();
+        else
+            drawGrid();
         drawRemote();
-        if (popTrack >= 0)
-            drawStepKeys();
     }
 
     bool onMouse(const MouseEvent& ev) override
@@ -141,18 +143,27 @@ protected:
             editName = -1;
             sendSet();
         }
-        if (!ev.press && previewNote >= 0) { // Taste der Schritt-Tastatur losgelassen
+        if (!ev.press && previewNote >= 0) { // Note der Piano-Roll losgelassen
             sendNote((uint8_t)previewChannel, (uint8_t)previewNote, 0);
             previewNote = -1;
         }
         const Hit* h = hitAt(x, y);
-        if (ev.press && popTrack >= 0 && !(h && h->kind == kButton && h->button >= kBtnKey && h->button <= kBtnPopup)) {
-            popTrack = -1; // Klick außerhalb schließt die Tastatur
-            redraw();
-            return true;
-        }
         if (ev.press && ev.button == kMouseButtonRight && h && h->kind == kButton) {
             const int b = h->button;
+            if (b >= kBtnName && b < kBtnName + kTracks) { // umbenennen
+                editName = b - kBtnName;
+                nameText = model.tracks[editName].name;
+                redraw();
+                return true;
+            }
+            if (b >= kBtnRoll && b < kBtnRoll + kKeyCount * kMaxSteps) { // Tie in der Piano-Roll
+                Step& st = model.patterns[editPattern()].tracks[rollTrack].steps[(b - kBtnRoll) % kMaxSteps];
+                if (st.vel) {
+                    st.tie = !st.tie;
+                    sendSet();
+                }
+                return true;
+            }
             if (b >= kBtnStep && b < kBtnStep + kTracks * kMaxSteps) {
                 Step& st = model.patterns[editPattern()].tracks[(b - kBtnStep) / kMaxSteps].steps[(b - kBtnStep) % kMaxSteps];
                 st.tie = !st.tie;
@@ -165,13 +176,12 @@ protected:
             }
         }
         if (ev.press && ev.button == kMouseButtonLeft && h && h->kind == kButton && h->button >= kBtnName && h->button < kBtnName + kTracks) {
-            const auto now = Clock::now(); // Doppelklick: Namen bearbeiten
-            if (lastNameClick == h->button && now - lastNameTime < std::chrono::milliseconds(400)) {
-                editName = h->button - kBtnName;
-                nameText = model.tracks[editName].name;
+            const int t = h->button - kBtnName; // Melodie-Spur: Piano-Roll öffnen
+            if (model.tracks[t].melody) {
+                rollTrack = t;
+                rollView = std::max(kKeyLow, std::min(0, -(model.tracks[t].note % 12))); // ab dem C unter der Spur-Note
                 redraw();
             }
-            lastNameClick = h->button, lastNameTime = now;
             return true;
         }
         return OffbeatKitUI::onMouse(ev);
@@ -222,28 +232,32 @@ protected:
     {
         const int pat = editPattern();
         if (b >= kBtnStep && b < kBtnStep + kTracks * kMaxSteps) {
-            const int t = (b - kBtnStep) / kMaxSteps, si = (b - kBtnStep) % kMaxSteps;
-            Step& st = model.patterns[pat].tracks[t].steps[si];
+            Step& st = model.patterns[pat].tracks[(b - kBtnStep) / kMaxSteps].steps[(b - kBtnStep) % kMaxSteps];
             if (velMode) {
                 static const uint8_t kNext[4] = { kVelNormal, kVelOff, kVelLoud, kVelGhost }; // aus→normal→laut→Ghost→aus
                 st.vel = kNext[st.vel & 3];
-            } else if (model.tracks[t].melody) { // Melodie: Schritt setzen und Tastatur öffnen
-                if (st.vel == kVelOff)
-                    st.vel = kVelNormal, st.keys = 0;
-                popTrack = t, popStep = si;
-                const int note = model.tracks[t].note;
-                popView = std::max(kKeyLow, std::min(kKeyLow + kKeyCount - 24, -(note % 12))); // ab dem C unter der Spur-Note
             } else {
                 st.vel = st.vel ? kVelOff : kVelNormal;
+                if (!st.vel)
+                    st = Step();
             }
             sendSet();
-        } else if (b >= kBtnKey && b < kBtnKey + kKeyCount && popTrack >= 0) {
-            Step& st = model.patterns[pat].tracks[popTrack].steps[popStep];
-            const int offset = b - kBtnKey + kKeyLow;
-            uint64_t keys = st.keys ? st.keys : keyBit(0);
-            keys ^= keyBit(offset);
-            const TrackConf& c = model.tracks[popTrack];
-            if (keys & keyBit(offset)) { // gewählte Taste anspielen
+        } else if (b >= kBtnRoll && b < kBtnRoll + kKeyCount * kMaxSteps && rollTrack >= 0) {
+            const int offset = (b - kBtnRoll) / kMaxSteps + kKeyLow, si = (b - kBtnRoll) % kMaxSteps;
+            Step& st = model.patterns[pat].tracks[rollTrack].steps[si];
+            const uint64_t bit = keyBit(offset);
+            uint64_t keys = st.vel ? (st.keys ? st.keys : keyBit(0)) : 0;
+            if (velMode && (keys & bit)) { // STÄRKE: Stärke des Schritts wechseln
+                static const uint8_t kNext[4] = { kVelNormal, kVelOff, kVelLoud, kVelGhost };
+                st.vel = kNext[st.vel & 3];
+                if (!st.vel)
+                    st = Step();
+                sendSet();
+                return;
+            }
+            keys ^= bit;
+            if (keys & bit) { // gesetzte Note anspielen (auf dem Kanal der Spur)
+                const TrackConf& c = model.tracks[rollTrack];
                 previewChannel = c.channel - 1;
                 previewNote = c.note + offset;
                 if (previewNote >= 0 && previewNote < 128)
@@ -251,24 +265,25 @@ protected:
                 else
                     previewNote = -1;
             }
-            if (keys == 0) { // keine Taste mehr: Schritt aus
+            if (keys == 0) {
                 st = Step();
-                popTrack = -1;
             } else {
+                if (st.vel == kVelOff)
+                    st.vel = kVelNormal;
                 st.keys = keys == keyBit(0) ? 0 : keys;
             }
             sendSet();
         } else if (b == kBtnOctDown || b == kBtnOctUp) {
-            popView = std::max(kKeyLow, std::min(kKeyLow + kKeyCount - 24, popView + (b == kBtnOctUp ? 12 : -12)));
+            rollView = std::max(kKeyLow, std::min(0, rollView + (b == kBtnOctUp ? 12 : -12)));
             redraw();
-        } else if (b == kBtnStepRemove && popTrack >= 0) {
-            model.patterns[pat].tracks[popTrack].steps[popStep] = Step();
-            popTrack = -1;
+        } else if (b == kBtnRollBack) {
+            rollTrack = -1;
+            redraw();
+        } else if (b == kBtnRollMute && rollTrack >= 0) {
+            setValue(kMute1 + rollTrack, values[kMute1 + rollTrack] >= 0.5f ? 0 : 1, true);
+        } else if (b == kBtnRollSolo && rollTrack >= 0) {
+            model.tracks[rollTrack].solo = !model.tracks[rollTrack].solo;
             sendSet();
-        } else if (b == kBtnStepDone) {
-            popTrack = -1;
-            redraw();
-        } else if (b == kBtnPopup) {
         } else if (b == kBtnVelMode) {
             velMode = !velMode;
             redraw();
@@ -333,11 +348,10 @@ protected:
 private:
     NanoImage gearbox;
     Set model;
-    int page = 0, editName = -1, lastNameClick = -1;
+    int page = 0, editName = -1;
     std::string nameText;
-    Clock::time_point lastNameTime;
     bool fillHeld = false, velMode = false;
-    int popTrack = -1, popStep = 0, popView = 0; // offene Schritt-Tastatur (Spur, Schritt, erster Versatz)
+    int rollTrack = -1, rollView = 0; // offene Piano-Roll (Spur, unterster Versatz)
     int previewNote = -1, previewChannel = 0;
     uint32_t fetchedRevision = 0;
     std::string address;
@@ -490,13 +504,6 @@ private:
                         text(cx + kCellW / 2, y + h / 2 + 7, more, nullptr);
                     }
                 }
-                if (popTrack == t && popStep == s) { // gerade in der Tastatur offen
-                    beginPath();
-                    roundedRect(cx - 2, y - 2, kCellW + 4, h + 4, 6);
-                    strokeColor(th.text);
-                    strokeWidth(2);
-                    stroke();
-                }
                 if (st.tie && inside) { // Tie: Balken zum nächsten Schritt
                     beginPath();
                     rect(cx + kCellW - 6, y + h / 2 - 3, 6 + kCellGap + 4, 6);
@@ -520,69 +527,96 @@ private:
         }
     }
 
-    // Tastatur eines Melodie-Schritts: 2 Oktaven ab popView, gewählte Tasten leuchten; Klick schaltet um.
-    void drawStepKeys()
+    // Piano-Roll einer Melodie-Spur: 24 Tonhöhen (ab rollView) × 16 Schritte der Seite.
+    void drawRoll()
     {
         const int pat = editPattern();
-        const TrackConf& c = model.tracks[popTrack];
-        const Step& st = model.patterns[pat].tracks[popTrack].steps[popStep];
-        const uint64_t keys = st.keys ? st.keys : keyBit(0);
-        const float pw = 760, ph = 260, px = (kW - pw) / 2, py = kGridY + 70;
-        addHit(-1, kBtnPopup, px, py, pw, ph, kButton, py + ph); // Klicks im Fenster nicht ans Raster
-        beginPath();
-        rect(0, 0, kW, kH);
-        fillColor(kit::withAlpha(Color(0, 0, 0), 0.55f));
-        fill();
-        char title[80];
-        std::snprintf(title, sizeof(title), "%s  \xc2\xb7  SCHRITT %d  \xc2\xb7  NOTEN", c.name, popStep + 1);
-        beginPath();
-        roundedRect(px, py, pw, ph, 10);
-        fillColor(th.night);
-        fill();
+        const TrackConf& c = model.tracks[rollTrack];
+        const PatternTrack& pt = model.patterns[pat].tracks[rollTrack];
+        const float px = kMargin, py = kGridY, pw = kW - 2 * kMargin, ph = kLabelH + 8 * kRowH + 14;
+        char title[96];
+        std::snprintf(title, sizeof(title), "%s  \xc2\xb7  PIANO-ROLL  \xc2\xb7  PATTERN %c  \xc2\xb7  SCHRITTE %d\xe2\x80\x93%d",
+                      c.name, 'A' + pat, page * 16 + 1, page * 16 + 16);
         drawPanel(px, py, pw, ph, title, th.brand);
 
-        const float kx = px + 30, ky = py + kLabelH + 20, whiteW = 50, kh = 150;
+        const float by = py + kLabelH + 2;
+        pill(kBtnRollMute, px + 12, by, 30, 22, "M", th.brand, values[kMute1 + rollTrack] >= 0.5f);
+        pill(kBtnRollSolo, px + 46, by, 30, 22, "S", th.light, c.solo);
+        pill(kBtnOctDown, px + pw - 12 - 3 * 96, by, 88, 22, "Okt -", th.brand, false);
+        pill(kBtnOctUp, px + pw - 12 - 2 * 96, by, 88, 22, "Okt +", th.brand, false);
+        pill(kBtnRollBack, px + pw - 12 - 96, by, 96, 22, "Raster", th.brand, true);
+
         static const bool kBlack[12] = { false, true, false, true, false, false, true, false, true, false, true, false };
-        const int startNote = c.note + popView;
-        for (int pass = 0; pass < 2; ++pass) { // erst weiße, dann schwarze Tasten (liegen oben)
-            int white = 0;
-            for (int i = 0; i < 24; ++i) {
-                const int note = startNote + i, pc = ((note % 12) + 12) % 12;
-                const int offset = popView + i;
-                if (!kBlack[pc]) {
-                    if (pass == 0) {
-                        const float x = kx + white * whiteW;
-                        const bool on = keys & keyBit(offset);
-                        addHit(-1, kBtnKey + offset - kKeyLow, x, ky, whiteW - 2, kh, kButton, ky + kh);
-                        beginPath();
-                        roundedRect(x, ky, whiteW - 2, kh, 4);
-                        fillColor(on ? th.brand : th.text);
-                        fill();
-                        textAlign(ALIGN_CENTER | ALIGN_BOTTOM);
-                        fontSize(10);
-                        fillColor(th.night);
-                        text(x + whiteW / 2 - 1, ky + kh - 6, noteName(std::max(0, std::min(127, note))).c_str(), nullptr);
-                    }
-                    ++white;
-                } else if (pass == 1) {
-                    const float x = kx + white * whiteW - whiteW * 0.35f; // mittig auf der Grenze der weißen Tasten
-                    const bool on = keys & keyBit(offset);
-                    addHit(-1, kBtnKey + offset - kKeyLow, x, ky, whiteW * 0.66f, kh * 0.6f, kButton, ky + kh);
+        const float top = by + 30, rowH = (py + ph - 20 - top) / 24, labelW = 60, x0 = px + 12 + labelW + 6;
+        const float cellW = 56, gap = 3;
+        const int cursor = values[kPlaying] >= 0.5f && (int)values[kPlayingPattern] == pat ? (int)values[kStep1 + rollTrack] : -1;
+        for (int r = 0; r < 24; ++r) {
+            const int offset = rollView + 23 - r, note = c.note + offset; // oben die höchste Tonhöhe
+            const float y = top + r * rowH;
+            const bool black = note >= 0 && kBlack[note % 12];
+            beginPath(); // Zeilenhintergrund wie eine Klaviatur
+            rect(px + 12, y, pw - 24, rowH - 1);
+            fillColor(kit::withAlpha(black ? th.night : th.plate, black ? 0.9f : 0.6f));
+            fill();
+            textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
+            fontSize(9);
+            fillColor(note % 12 == 0 ? th.text : th.dim);
+            if (note >= 0 && note < 128)
+                text(px + 18, y + rowH / 2, noteName(note).c_str(), nullptr);
+            for (int k = 0; k < 16; ++k) {
+                const int si = page * 16 + k;
+                const float cx = x0 + k * (cellW + gap) + (k / 4) * 6;
+                const bool inside = si < pt.length && note >= 0 && note < 128;
+                const Step& st = pt.steps[si];
+                const bool on = st.vel && ((st.keys ? st.keys : keyBit(0)) & keyBit(offset));
+                if (inside)
+                    addHit(-1, kBtnRoll + (offset - kKeyLow) * kMaxSteps + si, cx, y, cellW, rowH - 1, kButton, y + rowH);
+                if (on) {
+                    const float alpha = st.vel == kVelLoud ? 1.0f : st.vel == kVelNormal ? 0.75f : 0.35f;
                     beginPath();
-                    roundedRect(x, ky, whiteW * 0.66f, kh * 0.6f, 3);
-                    fillColor(on ? th.brand : th.night2);
+                    roundedRect(cx + 1, y + 1, cellW - 2, rowH - 3, 3);
+                    fillColor(kit::withAlpha(th.brand, alpha));
                     fill();
-                    strokeColor(th.night);
-                    strokeWidth(1);
-                    stroke();
+                    if (st.tie) { // Tie: Verbindung zum nächsten Schritt
+                        beginPath();
+                        rect(cx + cellW - 4, y + rowH / 2 - 2, gap + 8, 4);
+                        fillColor(th.light);
+                        fill();
+                    }
+                } else if (!inside) {
+                    beginPath();
+                    rect(cx, y, cellW, rowH - 1);
+                    fillColor(kit::withAlpha(th.night, 0.6f));
+                    fill();
                 }
             }
         }
-        const float by = ky + kh + 16;
-        pill(kBtnOctDown, kx, by, 90, 28, "Okt -", th.brand, false);
-        pill(kBtnOctUp, kx + 98, by, 90, 28, "Okt +", th.brand, false);
-        pill(kBtnStepRemove, px + pw - 30 - 230, by, 110, 28, "Entfernen", th.brand, false);
-        pill(kBtnStepDone, px + pw - 30 - 110, by, 110, 28, "Fertig", th.brand, true);
+        for (int k = 0; k <= 16; ++k) { // Schritt- und Schlaglinien, Cursor
+            const float cx = x0 + k * (cellW + gap) + (std::min(k, 15) / 4) * 6 - (k == 16 ? gap : 0) - 1.5f;
+            beginPath();
+            moveTo(cx, top);
+            lineTo(cx, top + 24 * rowH);
+            strokeColor(kit::withAlpha(th.brand, k % 4 == 0 ? 0.45f : 0.15f));
+            strokeWidth(1);
+            stroke();
+        }
+        if (cursor >= page * 16 && cursor < page * 16 + 16) {
+            const int k = cursor - page * 16;
+            const float cx = x0 + k * (cellW + gap) + (k / 4) * 6;
+            beginPath();
+            rect(cx, top, cellW, 24 * rowH);
+            strokeColor(th.text);
+            strokeWidth(1.5f);
+            stroke();
+        }
+        textAlign(ALIGN_CENTER | ALIGN_TOP);
+        fontSize(9);
+        fillColor(th.dim);
+        for (int k = 0; k < 16; ++k) {
+            char num[4];
+            std::snprintf(num, sizeof(num), "%d", page * 16 + k + 1);
+            text(x0 + k * (cellW + gap) + (k / 4) * 6 + cellW / 2, top + 24 * rowH + 3, num, nullptr);
+        }
     }
 
     void drawRemote()

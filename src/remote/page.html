@@ -61,17 +61,17 @@ button:disabled{opacity:.25}
 #pin input{width:100%;font-size:34px;text-align:center;letter-spacing:.5em;background:#0d0804;color:var(--a);
   border:1px solid var(--bd);border-radius:10px;padding:8px;margin:10px 0;min-height:56px}
 #pin .err{color:#f66;min-height:18px}
-#pop{position:fixed;inset:0;background:rgba(13,8,4,.85);display:none;align-items:center;justify-content:center;z-index:8}
-#pop.show{display:flex}
-#pop .box{width:min(760px,98vw);padding:16px;border:1px solid var(--a);border-radius:18px;background:var(--pn);box-shadow:0 0 30px rgba(255,163,26,.3)}
-#pop .tt{font-size:16px;letter-spacing:.12em;text-transform:uppercase;color:var(--a);margin-bottom:12px}
-#pop .kw{overflow-x:auto}
-#pop .kb{position:relative;height:170px;min-width:644px}
-#pop .wk{position:absolute;top:0;height:100%;border:1px solid #555;border-radius:0 0 8px 8px;background:#f4ead8;color:#1a0d00;
-  display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:11px}
-#pop .bk{position:absolute;top:0;height:60%;width:5.4%;transform:translateX(-50%);border:1px solid #000;border-radius:0 0 6px 6px;background:#1c1208;z-index:2}
-#pop .wk.k,#pop .bk.k{background:var(--a);box-shadow:0 0 12px var(--a)}
-#pop .bt{display:flex;gap:10px;margin-top:14px;justify-content:flex-end}
+#roll{flex:1;display:none;flex-direction:column;gap:6px;min-height:0;padding:8px;border:1px solid var(--bd);border-radius:14px;background:rgba(26,17,9,.7)}
+#roll.show{display:flex}
+#roll .bar{flex:none}
+#roll h2{margin:0;flex:1;font-size:14px;letter-spacing:.14em;text-transform:uppercase;color:var(--a)}
+#rb{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:3px}
+.rr{flex:none;height:32px;display:flex;align-items:stretch;gap:6px}
+.rr .rn{width:56px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;font-size:11px;font-variant-numeric:tabular-nums;border-radius:6px;background:#120b05}
+.rr .rn.b{background:#0a0603;opacity:.85}
+.rr .rn.cc{color:var(--a)}
+.c.b{background:#080502}
+#roll .c.t::after{right:2px;width:40%;top:40%;height:20%}
 #keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 #keys button{min-height:56px;font-size:22px}
 </style>
@@ -94,12 +94,8 @@ button:disabled{opacity:.25}
   <div id="pages"></div>
 </div>
 <div id="grid"></div>
-<!-- Noten-Popup -->
-<div id="pop"><div class="box">
-  <div class="tt" id="poptt"></div>
-  <div class="kw"><div class="kb" id="popkb"></div></div>
-  <div class="bt" id="popbt"></div>
-</div></div>
+<!-- Piano-Roll -->
+<div id="roll"></div>
 <!-- PIN-Dialog -->
 <div id="pin"><div class="box">
   <div class="lbl">PIN eingeben</div>
@@ -119,7 +115,7 @@ var CH = ".gxX";                    // Zeichen je Velocity 0..3
 var CYCLE = [2,0,3,1];
 var velMode = store("gearboxVelMode")==="1"; // Stärke-Modus: Tippen durchläuft alle Velocities
 var NN = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
-var pop = null;                     // offenes Noten-Popup {t,s,base,t0}              // aus Wert -> nächster Wert (0->2, 1->0, 2->3, 3->1)
+var roll = -1, rollView = 0;   // Piano-Roll: Spur (-1 = Raster) und unterster Offset der Ansicht
 
 function $(id){return document.getElementById(id);}
 function store(k,v){try{if(v===null)localStorage.removeItem(k);else if(v!==undefined)localStorage.setItem(k,v);else return localStorage.getItem(k);}catch(e){}return null;}
@@ -193,6 +189,7 @@ function mkBtn(par,txt,fn){var b=el("button","",txt,par);b.onclick=fn;return b;}
 for(var t=0;t<8;t++)(function(t){
   var r=el("div","row","",$("grid"));
   var nm=el("div","nm","",r);
+  nm.onclick=function(){if(model&&model.tracks[t]&&model.tracks[t].melody)openRoll(t);};
   var mb=mkBtn(r,"M",function(){var v=live.mutes[t]?0:1;live.mutes[t]=v;send("mute "+t+" "+v);dirty=true;draw();});
   var sb=mkBtn(r,"S",function(){var tr=model.tracks[t];tr.solo=!tr.solo;send("solo "+t+" "+(tr.solo?1:0));dirty=true;draw();});
   var cw=el("div","cells","",r);
@@ -233,15 +230,6 @@ function tap(t,s){
   var tr=curTrack(t);if(!tr||s>=tr.length)return;
   if(velMode){cycle(t,s);return;}
   var v=CH.indexOf(tr.steps.charAt(s));if(v<0)v=0;
-  if(model.tracks[t].melody){
-    if(v===0){
-      tr.steps=setChar(tr.steps,s,CH.charAt(2));
-      send("step "+live.queued+" "+t+" "+s+" 2");
-      dirty=true;draw();
-    }
-    openPop(t,s);
-    return;
-  }
   v=v?0:2;
   tr.steps=setChar(tr.steps,s,CH.charAt(v));
   send("step "+live.queued+" "+t+" "+s+" "+v);
@@ -252,76 +240,6 @@ function stepKeys(tr,s){ // Offsets eines Schritts (ohne Eintrag: Grundton)
   var k=tr.keys&&tr.keys[s];
   return k&&k.length?k:[0];
 }
-function popKeys(){
-  var tr=curTrack(pop.t);
-  return tr?stepKeys(tr,pop.s):[];
-}
-function openPop(t,s){
-  var note=model.tracks[t].note||0;
-  pop={t:t,s:s,base:Math.floor(note/12)*12,t0:Date.now()};
-  $("poptt").textContent=model.tracks[t].name+" · Schritt "+(s+1);
-  $("pop").className="show";
-  renderPop();
-}
-function closePop(){pop=null;$("pop").className="";}
-function shiftPop(d){
-  var note=model.tracks[pop.t].note||0,b=pop.base+d;
-  if(b-note>0||b-note<-24)return; // Offsets bleiben in -24..23
-  pop.base=b;renderPop();
-}
-function popToggle(o){
-  var tr=curTrack(pop.t);if(!tr)return;
-  var t=pop.t,s=pop.s,ks=stepKeys(tr,s).slice(),i=ks.indexOf(o);
-  if(i>=0)ks.splice(i,1);else ks.push(o);
-  ks.sort(function(a,b){return a-b;});
-  if(!tr.keys)tr.keys={};
-  if(!ks.length){
-    delete tr.keys[s];
-    tr.steps=setChar(tr.steps,s,".");
-    send(["keys "+live.queued+" "+t+" "+s,"step "+live.queued+" "+t+" "+s+" 0"]);
-    closePop();dirty=true;draw();return;
-  }
-  tr.keys[s]=ks;
-  send("keys "+live.queued+" "+t+" "+s+" "+ks.join(","));
-  renderPop();dirty=true;draw();
-}
-function popRemove(){
-  var tr=curTrack(pop.t),t=pop.t,s=pop.s;
-  if(tr){
-    tr.steps=setChar(tr.steps,s,".");
-    if(tr.keys)delete tr.keys[s];
-  }
-  send(["step "+live.queued+" "+t+" "+s+" 0","keys "+live.queued+" "+t+" "+s]);
-  closePop();dirty=true;draw();
-}
-function renderPop(){
-  var kb=$("popkb");kb.textContent="";
-  var note=model.tracks[pop.t].note||0,sel=popKeys(),wi=0,m;
-  for(m=0;m<24;m++){
-    var pc=m%12,o=pop.base+m-note,on=sel.indexOf(o)>=0;
-    if([1,3,6,8,10].indexOf(pc)>=0){
-      var bk=el("div","bk"+(on?" k":""),"",kb);
-      bk.style.left=(wi/14*100)+"%";
-      bk.onclick=(function(o){return function(){popToggle(o);};})(o);
-    }else{
-      var wk=el("div","wk"+(on?" k":""),pc===0?noteName(pop.base+m):"",kb);
-      wk.style.left=(wi/14*100)+"%";wk.style.width=(100/14)+"%";
-      wk.onclick=(function(o){return function(){popToggle(o);};})(o);
-      wi++;
-    }
-  }
-}
-(function(){
-  var bt=$("popbt");
-  mkBtn(bt,"OKT −",function(){shiftPop(-12);});
-  mkBtn(bt,"OKT +",function(){shiftPop(12);});
-  bt.appendChild(el("span","","",null)).style.flex="1";
-  mkBtn(bt,"Entfernen",function(){if(pop)popRemove();});
-  mkBtn(bt,"Fertig",closePop);
-  $("pop").addEventListener("click",function(e){
-    if(e.target===$("pop")&&pop&&Date.now()-pop.t0>300)closePop();
-  });
-})();
 function tie(t,s){
   var tr=curTrack(t);if(!tr||s>=tr.length)return;
   var on=tr.ties.charAt(s)==="~"?0:1;
@@ -348,6 +266,111 @@ function rot(t,d){
   tr.steps=rr(tr.steps);tr.ties=rr(tr.ties);
   send("rotate "+live.queued+" "+t+" "+d);
   dirty=true;draw();
+}
+// ---------- Piano-Roll ----------
+var rollCells=[],rollCache=[],rollLbl=[],rollInit=false,rollTitle,rollM,rollS;
+var BLACK=[1,3,6,8,10];
+function openRoll(t){
+  var note=model.tracks[t].note||0;
+  roll=t;rollView=Math.max(-24,Math.min(0,-(note%12)));
+  rollCache=[];dirty=true;draw();
+}
+function closeRoll(){roll=-1;dirty=true;draw();}
+function shiftRoll(d){
+  var v=Math.max(-24,Math.min(0,rollView+d));
+  if(v===rollView)return;
+  rollView=v;rollCache=[];dirty=true;draw();
+}
+function rollTap(t,s,o){
+  var tr=curTrack(t);if(!tr||s>=tr.length)return;
+  var v=CH.indexOf(tr.steps.charAt(s));if(v<0)v=0;
+  var ks=stepKeys(tr,s).slice(),i=ks.indexOf(o),P=live.queued;
+  if(velMode&&v>0&&i>=0){cycle(t,s);return;}
+  if(!tr.keys)tr.keys={};
+  if(v===0){ // Schritt war aus: nur dieser Offset
+    tr.steps=setChar(tr.steps,s,CH.charAt(2));
+    if(o===0)delete tr.keys[s];else tr.keys[s]=[o];
+    send(["step "+P+" "+t+" "+s+" 2","keys "+P+" "+t+" "+s+(o===0?"":" "+o)]);
+    dirty=true;draw();return;
+  }
+  if(i>=0)ks.splice(i,1);else ks.push(o);
+  ks.sort(function(a,b){return a-b;});
+  if(!ks.length){
+    delete tr.keys[s];
+    tr.steps=setChar(tr.steps,s,".");
+    send(["step "+P+" "+t+" "+s+" 0","keys "+P+" "+t+" "+s]);
+  }else if(ks.length===1&&ks[0]===0){
+    delete tr.keys[s];
+    send("keys "+P+" "+t+" "+s);
+  }else{
+    tr.keys[s]=ks;
+    send("keys "+P+" "+t+" "+s+" "+ks.join(","));
+  }
+  dirty=true;draw();
+}
+function buildRoll(){
+  rollInit=true;
+  var R=$("roll"),hd=el("div","bar","",R);
+  rollTitle=el("h2","","",hd);
+  rollM=mkBtn(hd,"M",function(){if(roll<0)return;var v=live.mutes[roll]?0:1;live.mutes[roll]=v;send("mute "+roll+" "+v);dirty=true;draw();});
+  rollS=mkBtn(hd,"S",function(){if(roll<0)return;var tr=model.tracks[roll];tr.solo=!tr.solo;send("solo "+roll+" "+(tr.solo?1:0));dirty=true;draw();});
+  mkBtn(hd,"OKT −",function(){shiftRoll(-12);});
+  mkBtn(hd,"OKT +",function(){shiftRoll(12);});
+  mkBtn(hd,"Raster",closeRoll);
+  var body=el("div","","",R);body.id="rb";
+  for(var r=0;r<24;r++)(function(r){
+    var row=el("div","rr","",body);
+    rollLbl.push(el("div","rn","",row));
+    var cw=el("div","cells","",row);
+    for(var i=0;i<16;i++)(function(i){
+      var c=el("div","c","",cw);
+      rollCells.push(c);rollCache.push("");
+      var timer=null,fired=false;
+      function clear(){if(timer){clearTimeout(timer);timer=null;}}
+      c.addEventListener("pointerdown",function(e){
+        e.preventDefault();fired=false;clear();
+        timer=setTimeout(function(){
+          timer=null;fired=true;
+          var tr=curTrack(roll),s=page*16+i;
+          if(tr&&s<tr.length&&c.classList.contains("lit"))tie(roll,s); // Long-Press auf leuchtender Zelle: Tie
+        },LP);
+      });
+      c.addEventListener("pointerup",function(){
+        if(timer){clear();if(!fired)rollTap(roll,page*16+i,rollView+23-r);}
+      });
+      c.addEventListener("pointercancel",clear);
+      c.addEventListener("pointerleave",clear);
+      c.addEventListener("contextmenu",function(e){e.preventDefault();});
+    })(i);
+  })(r);
+}
+function renderRoll(){
+  var t=roll,tr=curTrack(t),info=model.tracks[t];
+  if(!tr)return;
+  var note=info.note||0,cur=live.steps[t]!==undefined?live.steps[t]:-1,r,i;
+  rollTitle.textContent=info.name+" · PIANO-ROLL";
+  rollM.classList.toggle("on",!!live.mutes[t]);
+  rollS.classList.toggle("on",!!info.solo);
+  for(r=0;r<24;r++){
+    var o=rollView+23-r,n=note+o,pc=((n%12)+12)%12,blk=BLACK.indexOf(pc)>=0;
+    var lc="rn"+(blk?" b":"")+(pc===0?" cc":"");
+    if(rollLbl[r].className!==lc)rollLbl[r].className=lc;
+    var nn=noteName(n);
+    if(rollLbl[r].textContent!==nn)rollLbl[r].textContent=nn;
+    for(i=0;i<16;i++){
+      var s=page*16+i,cls="c";
+      if(s>=tr.length)cls+=" off";
+      else{
+        var ch=tr.steps.charAt(s),lit=false;
+        if(ch==="g"||ch==="x"||ch==="X")lit=stepKeys(tr,s).indexOf(o)>=0;
+        if(lit){cls+=" "+ch+" lit";if(tr.ties.charAt(s)==="~")cls+=" t";}
+        else if(blk)cls+=" b";
+        if(live.playing&&live.pattern===live.queued&&s===cur)cls+=" cur";
+      }
+      var k=r*16+i;
+      if(rollCache[k]!==cls){rollCache[k]=cls;rollCells[k].className=cls;}
+    }
+  }
 }
 $("vel").onclick=function(){velMode=!velMode;store("gearboxVelMode",velMode?"1":null);dirty=true;draw();};
 $("play").onclick=function(){var v=live.playing?0:1;live.playing=!!v;send("play "+v);dirty=true;draw();};
@@ -382,6 +405,11 @@ function render(){
   var maxPage=Math.ceil(maxLen/16)-1;
   if(page>maxPage)page=maxPage;
   for(i=0;i<4;i++){pgb[i].disabled=i>maxPage;pgb[i].classList.toggle("on",i===page);}
+  if(roll>=0&&!model.tracks[roll])roll=-1;
+  if(!rollInit)buildRoll();
+  $("grid").style.display=roll>=0?"none":"";
+  $("roll").className=roll>=0?"show":"";
+  if(roll>=0)renderRoll();
   for(t=0;t<8;t++){
     var tr=curTrack(t),info=model.tracks[t],row=rows[t];
     if(!tr)continue;
