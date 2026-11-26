@@ -17,6 +17,7 @@ public:
     GearboxPlugin()
         : Plugin(kParamCount, 0, 2)
     {
+        seq.setRouting(core.routing);
         seq.setSampleRate((float)getSampleRate());
         seq.setSet(core.acquire());
     }
@@ -69,6 +70,8 @@ protected:
         case kRemotePin: return (float)core.server.pin();
         case kRemoteClients: return (float)core.server.clients();
         case kRevision: return (float)(core.revision() % 10000000u);
+        case kLinkIdHigh: return (float)(core.linkId >> 14 & 0x3fff);
+        case kLinkIdLow: return (float)(core.linkId & 0x3fff);
         default: return seq.getParam((int)index);
         }
     }
@@ -104,14 +107,17 @@ protected:
         if (helloTimer <= 0 && set) {
             helloTimer = (int64_t)(getSampleRate() * 2.0);
             const uint32_t id = core.linkId;
-            for (int t = 0; t < kTracks; ++t) {
-                const uint8_t ch = (uint8_t)(0xb0 | (set->tracks[t].channel - 1));
-                const uint32_t parts[3] = { id >> 14 & 0x3fff, id & 0x3fff, (uint32_t)t };
-                sendCC(ch, 99, 0x3e);
-                for (int k = 0; k < 3; ++k) {
-                    sendCC(ch, 98, (uint8_t)k);
-                    sendCC(ch, 6, (uint8_t)(parts[k] >> 7));
-                    sendCC(ch, 38, (uint8_t)(parts[k] & 0x7f));
+            for (int t = 0; t < kTracks; ++t) { // auf beiden Kanälen der Spur (Engine Kanal N, Topline Kanal N + 8)
+                const int chans[2] = { set->tracks[t].channel, secondChannel(set->tracks[t]) };
+                for (int k2 = 0; k2 < (chans[1] != chans[0] ? 2 : 1); ++k2) {
+                    const uint8_t ch = (uint8_t)(0xb0 | (chans[k2] - 1));
+                    const uint32_t parts[3] = { id >> 14 & 0x3fff, id & 0x3fff, (uint32_t)t };
+                    sendCC(ch, 99, 0x3e);
+                    for (int k = 0; k < 3; ++k) {
+                        sendCC(ch, 98, (uint8_t)k);
+                        sendCC(ch, 6, (uint8_t)(parts[k] >> 7));
+                        sendCC(ch, 38, (uint8_t)(parts[k] & 0x7f));
+                    }
                 }
             }
         }

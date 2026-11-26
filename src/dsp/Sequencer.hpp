@@ -7,6 +7,7 @@
 #include "Model.hpp"
 #include "Params.hpp"
 
+#include <atomic>
 #include <cstdint>
 
 namespace offbeat {
@@ -26,6 +27,8 @@ public:
 
     // Raster für die folgenden Blöcke (bleibt im Besitz der Hülle; erst nach dem Tausch freigeben)
     void setSet(const Set* s) { set = s; }
+    // Kanal je Spur und Plugin (Index Spur·3 + Plugin, Wert 1–16, 0 = unbekannt), gepflegt außerhalb des Audio-Threads
+    void setRouting(const std::atomic<int>* r) { routing = r; }
 
     // Einmal pro Block vor process(): Host-Transport. hostPlaying mit gültigem Takt hat Vorrang vor Play.
     void setTransport(bool hostPlaying, double beat, double hostBpm);
@@ -69,7 +72,9 @@ private:
     bool chainActive = false;   // Ablauf läuft (seit Play-Start, bis ein Pattern-Knopf übernimmt)
     int64_t chainStart = 0;     // Schritt, an dem der Ablauf begann (Taktanfang)
     float lastPatternParam = 0; // erkennt Pattern-Knöpfe während des Ablaufs
-    int chainWant(int64_t g) const; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
+    int chainWant(int64_t g) const;
+    int channelOf(int tr, const TrackConf& c, const PatternTrack& pt) const;
+    const std::atomic<int>* routing = nullptr; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
     int playingPattern = 0;
 
     // klingende Noten je Spur: active[Spur][Note] = Kanal + 1 (0 = aus); mehrere bei Akkorden

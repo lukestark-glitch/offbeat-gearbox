@@ -73,9 +73,11 @@ bool readPattern(Pattern& p, const JsonValue& v, std::string& err)
         PatternTrack& pt = p.tracks[t];
         if (const JsonValue* x = tv.get("length"); x && x->type == JsonValue::Number)
             pt.length = std::clamp((int)x->num, 1, kMaxSteps);
-        pt.program = -1;
+        pt.program = -1, pt.synth = 0;
         if (const JsonValue* x = tv.get("program"); x && x->type == JsonValue::Number)
             pt.program = std::clamp((int)x->num, -1, 127);
+        if (const JsonValue* x = tv.get("synth"); x && x->type == JsonValue::Number)
+            pt.synth = std::clamp((int)x->num, 0, 2);
         if (const JsonValue* x = tv.get("steps"); x && x->type == JsonValue::String)
             for (int s = 0; s < kMaxSteps; ++s) {
                 const int vel = s < (int)x->str.size() ? velFromChar(x->str[s]) : kVelOff;
@@ -113,7 +115,8 @@ void writePattern(std::string& o, const Pattern& p)
         for (int s = 0; s < kMaxSteps; ++s)
             steps[s] = kVelChars[pt.steps[s].vel & 3], ties[s] = pt.steps[s].tie ? '~' : '.';
         char buf[48];
-        std::snprintf(buf, sizeof(buf), "%s{\"length\":%d,\"program\":%d,\"steps\":\"", t ? "," : "", pt.length, pt.program);
+        std::snprintf(buf, sizeof(buf), "%s{\"length\":%d,\"program\":%d,\"synth\":%d,\"steps\":\"", t ? "," : "", pt.length,
+                      pt.program, pt.synth);
         o += buf + steps + "\",\"ties\":\"" + ties + "\"";
         std::string keys;
         for (int s = 0; s < kMaxSteps; ++s)
@@ -314,12 +317,18 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         s.patterns[p].tracks[t].steps[st].keys = keys;
         return CommandResult::Edited;
     }
-    if (cmd == "program") { // program P T WERT (-1 = kein Sound-Wechsel)
+    if (cmd == "program") { // program P T WERT [PLUGIN 1 Engine / 2 Topline] (-1 = kein Sound-Wechsel)
         if (!idx(p, kPatterns, "Pattern") || !idx(t, kTracks, "Spur") || !(in >> x)) {
             if (err.empty()) err = "Wert fehlt";
             return CommandResult::Error;
         }
-        s.patterns[p].tracks[t].program = std::clamp((int)x, -1, 127);
+        PatternTrack& pt = s.patterns[p].tracks[t];
+        pt.program = std::clamp((int)x, -1, 127);
+        int synth;
+        if (in >> synth)
+            pt.synth = std::clamp(synth, 0, 2);
+        else if (pt.program < 0)
+            pt.synth = 0;
         return CommandResult::Edited;
     }
     if (cmd == "length" || cmd == "rotate") {

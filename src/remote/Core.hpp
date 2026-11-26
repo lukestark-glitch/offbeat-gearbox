@@ -11,6 +11,7 @@
 #include "Server.hpp"
 
 #include <atomic>
+#include <thread>
 #include <mutex>
 
 namespace offbeat {
@@ -60,6 +61,18 @@ private:
     std::atomic<bool> livePlaying { false }, liveFill { false };
     std::atomic<int> livePattern { 0 }, liveQueued { 0 }, liveSteps[kTracks], liveMutes { 0 };
     std::atomic<float> liveBpm { 160.0f }, liveSwing { 0.0f };
+
+public:
+public:
+    // Offbeat Link (Routing-Thread, ~3×/s): Kanal je Spur und Plugin (Index Spur·3 + 1 Engine / 2 Topline, 0 = unbekannt)
+    // und welche Plugins an einer Spur hängen (Bit 1 Engine, Bit 2 Topline, Bit 3 Horn)
+    std::atomic<int> routing[kTracks * 3] {};
+    std::atomic<int> linkedMask[kTracks] {};
+
+private:
+    std::atomic<bool> routeQuit { false };
+    std::thread routeThread;
+    void routeLoop();
 
 public:
     Server server; // als Letztes erzeugt, als Erstes zerstört: sein Thread sieht nur fertige Member

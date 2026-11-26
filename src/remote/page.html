@@ -241,30 +241,41 @@ for(var t=0;t<8;t++)(function(t){
 var SND_ENGINE=["Kick - Hard Bounce","Kick - Bounce Soft","Bass - Offbeat F2","Bass - Rubber","Bass - Late Bounce","Bass - Rolling Sub","Hat - Closed Soft","Hat - Open Soft","Stab - Rave","Lead - Flow","Pad - Milchglas","Riser - 8 Takte","Siren - 16 Takte","Kick - Bounce 160","Kick+Bass - Bounce 160"];
 var SND_TOP=["Supersaw - F-Moll Hymne (F5)","Supersaw - E-Dur Euphorie (E5)","Lead - Mono Glide","Stab - F-Moll Rave (F5)","Stab - A-Dur Shine (A4)","Stab - F-Moll7 Groove (F5)","Pluck - F-Moll (F5)","Pluck - E-Dur Chords (E5)","Whistle - Rave Pfeife (D#7)","Whistle - Triller (D#7)"];
 function soundList(synth){return synth===1?SND_ENGINE:synth===2?SND_TOP:null;}
+function effSynth(t){var tr=curTrack(t),info=model&&model.tracks[t];return (tr&&tr.synth)||(info&&info.synth)||0;}
 function soundLabel(t){
   var tr=curTrack(t),info=model&&model.tracks[t];
   if(!tr||!info||tr.program==null||tr.program<0)return "–";
-  var l=soundList(info.synth),n=l&&l[tr.program];
+  var l=soundList(effSynth(t)),n=l&&l[tr.program];
   if(!n)return "Prog "+(tr.program+1);
   n=n.replace(" - "," ").replace(/ \(.*\)$/,"");
   return n.length>12?n.substr(0,12):n;
 }
+function trackLabel(t){
+  var tr=curTrack(t),info=model.tracks[t];
+  if(tr&&tr.program!=null&&tr.program>=0){
+    var l=soundList(effSynth(t)),n=l&&l[tr.program];
+    if(n){var k=n.indexOf(" - ");return k>0?n.substr(0,k):n.replace(/ \(.*\)$/,"");}
+  }
+  return info.name;
+}
 function setSound(t,synth,idx){
-  var P=live.queued,tr=curTrack(t),info=model.tracks[t];
-  if(synth){send(["synth "+t+" "+synth,"program "+P+" "+t+" "+idx]);if(info)info.synth=synth;}
+  var P=live.queued,tr=curTrack(t);
+  if(synth&&idx>=0)send("program "+P+" "+t+" "+idx+" "+synth);
   else send("program "+P+" "+t+" -1");
-  if(tr)tr.program=idx;
+  if(tr){tr.program=idx;if(synth&&idx>=0)tr.synth=synth;}
   $("snd").classList.remove("show");
   dirty=true;draw();
 }
 function openSound(t){
   if(!model||!curTrack(t))return;
-  var cur=curTrack(t).program,cs=model.tracks[t].synth,L=$("sndl");
+  var cur=curTrack(t).program,cs=effSynth(t),L=$("sndl");
+  var lk=(model.linked&&model.linked[t])||0;
   L.innerHTML="";
   $("sndt").textContent="Sound – "+model.tracks[t].name+" ("+"ABCDEFGH".charAt(live.queued)+")";
   var b=el("button",cur<0||cur==null?"on":"","– kein Sound-Wechsel",L);
   b.onclick=function(){setSound(t,0,-1);};
-  [[1,"Engine",SND_ENGINE],[2,"Topline",SND_TOP]].forEach(function(g){
+  [[1,"Engine",SND_ENGINE,2],[2,"Topline",SND_TOP,4]].forEach(function(g){
+    if((lk&6)&&!(lk&g[3]))return;
     el("div","lbl",g[1],L);
     g[2].forEach(function(n,i){
       var bb=el("button",cs===g[0]&&cur===i?"on":"",n,L);
@@ -516,7 +527,7 @@ function render(){
   for(t=0;t<8;t++){
     var tr=curTrack(t),info=model.tracks[t],row=rows[t];
     if(!tr)continue;
-    row.nm.textContent=info.name;
+    row.nm.textContent=trackLabel(t);
     row.mb.classList.toggle("on",!!live.mutes[t]);
     row.sb.classList.toggle("on",!!info.solo);
     row.ln.textContent=tr.length;

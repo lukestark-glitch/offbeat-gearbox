@@ -101,6 +101,17 @@ int Sequencer::panic(MidiOut* out, int max, uint32_t frame)
     return n;
 }
 
+int Sequencer::channelOf(int tr, const TrackConf& c, const PatternTrack& pt) const
+{
+    const int synth = activeSynth(c, pt);
+    if (routing && synth >= 1 && synth <= 2) { // per Offbeat Link erkannt: Kanal, an dem dieses Plugin wirklich hängt
+        const int linked = routing[tr * 3 + synth].load(std::memory_order_relaxed);
+        if (linked >= 1)
+            return linked;
+    }
+    return synth == 2 && c.synth != 2 ? secondChannel(c) : c.channel; // sonst: Topline neben Engine auf Kanal + 8
+}
+
 int Sequencer::chainWant(int64_t g) const
 {
     int entry;
@@ -129,10 +140,10 @@ void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t fr
         const PatternTrack& pt = set->patterns[playingPattern].tracks[tr];
         const int s = (int)(((g - patternStart) % pt.length + pt.length) % pt.length);
         params[kStep1 + tr] = (float)s;
-        const uint8_t ch = (uint8_t)(c.channel - 1);
-        if (pt.program >= 0 && pt.program != sentProgram[tr]) { // Sound wechseln, vor den Noten dieses Schritts
+        const uint8_t ch = (uint8_t)(channelOf(tr, c, pt) - 1);
+        if (pt.program >= 0 && (pt.program | ch << 8) != sentProgram[tr]) { // Sound wechseln, vor den Noten dieses Schritts
             emit(out, n, max, frame, (uint8_t)(0xc0 | ch), (uint8_t)pt.program, 0);
-            sentProgram[tr] = pt.program;
+            sentProgram[tr] = pt.program | ch << 8; // auch bei gleichem Preset auf anderem Kanal (anderes Plugin) senden
         }
         const Step& step = pt.steps[s];
         const bool audible = params[kMute1 + tr] < 0.5f && (!anySolo || c.solo);

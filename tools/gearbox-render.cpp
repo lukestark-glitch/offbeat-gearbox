@@ -286,9 +286,9 @@ int checkAll()
         link::Client synth(link::kEngine);
         const uint32_t id = 0x0abcdef;
         const uint32_t parts[3] = { id >> 14 & 0x3fff, id & 0x3fff, 3 };
-        synth.cc(99, 0x3e);
+        synth.cc(4, 99, 0x3e);
         for (int k = 0; k < 3; ++k)
-            synth.cc(98, (uint8_t)k), synth.cc(6, (uint8_t)(parts[k] >> 7)), synth.cc(38, (uint8_t)(parts[k] & 0x7f));
+            synth.cc(4, 98, (uint8_t)k), synth.cc(4, 6, (uint8_t)(parts[k] >> 7)), synth.cc(4, 38, (uint8_t)(parts[k] & 0x7f));
         float knob[4] = { 0.25f, 0.5f, 3.0f, 0.75f }, got[link::kMaxValues];
         int n = 0;
         synth.update(1.0, 4, [&](int i) { return knob[i]; }, got, n);
@@ -302,6 +302,39 @@ int checkAll()
         const bool applied = synth.update(0.01, 4, [&](int i) { return knob[i]; }, got, n);
         expect("Laden schickt den gespeicherten Sound zurück an den Synth", sent == 1 && applied && n == 4 && got[2] == 3.0f);
         expect("Anfrage wird nur einmal angewendet", !synth.update(0.01, 4, [&](int i) { return knob[i]; }, got, n));
+    }
+
+    std::puts("== Zwei Plugins auf einer Spur: Engine Kanal 5, Topline Kanal 13 (je Pattern)");
+    {
+        Sim sim;
+        sim.cmd("synth 4 1");
+        sim.cmd("clear 0 4");
+        sim.cmd("step 0 4 0 3");
+        sim.cmd("copy 0 1");
+        sim.cmd("program 0 4 8 1");  // A: Engine „Stab - Rave“
+        sim.cmd("program 1 4 3 2");  // B: Topline „Stab - F-Moll Rave“
+        sim.run(160, 6.0, true, [&](int64_t, double& beat) {
+            if (beat >= 5.3)
+                sim.cmd("pattern 1");
+        });
+        const size_t a = onsOf(sim.events, 5).size(), b = onsOf(sim.events, 13).size();
+        bool pcB = false;
+        for (const Ev& e : sim.events)
+            pcB |= e.s == 0xc0 + 12 && e.d1 == 3;
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "Pattern A auf Kanal 5 (%zu), Pattern B auf Kanal 13 (%zu), Program Change auf 13", a, b);
+        expect(buf, a == 2 && b == 2 && pcB); // je 2 Takte A und B
+        int hanging = 0;
+        expect("keine hängenden Noten beim Plugin-Wechsel", noHanging(sim.events, hanging));
+        std::atomic<int> routing[kTracks * 3] {};
+        routing[4 * 3 + 2] = 7; // per Link erkannt: Topline hängt an Kanal 7
+        Sim r;
+        r.seq.setRouting(routing);
+        r.cmd("clear 0 4");
+        r.cmd("step 0 4 0 3");
+        r.cmd("program 0 4 3 2");
+        r.run(160, 1.0);
+        expect("erkannter Kanal (Link) hat Vorrang", onsOf(r.events, 7).size() == 1 && onsOf(r.events, 13).empty());
     }
 
     std::puts("== Polymetrik: Spur mit 3 Schritten gegen 16");

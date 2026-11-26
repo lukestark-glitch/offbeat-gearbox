@@ -46,8 +46,14 @@ const char* soundName(int synth, int program); // nullptr = unbekannt
 struct PatternTrack {
     int length = 16; // Schrittzahl 1–64 (eigene Länge je Spur → Polymetrik)
     int program = -1; // Sound (MIDI Program Change 0–127) beim Start des Patterns; -1 = nicht senden
+    int synth = 0;    // Plugin dieses Sounds: 0 = wie die Spur (TrackConf::synth), 1 Engine, 2 Topline
     Step steps[kMaxSteps];
 };
+
+// Plugin, das in diesem Pattern auf der Spur spielt (1 Engine, 2 Topline, 0 andere)
+inline int activeSynth(const TrackConf& c, const PatternTrack& pt) { return pt.synth ? pt.synth : c.synth; }
+// Zweiter Kanal einer Spur (Topline neben Engine): Kanal + 8, z. B. Spur 5 → 13
+inline int secondChannel(const TrackConf& c) { return c.channel <= 8 ? c.channel + 8 : c.channel; }
 
 struct Pattern {
     PatternTrack tracks[kTracks];

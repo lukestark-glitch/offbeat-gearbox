@@ -40,6 +40,8 @@ const ParamInfo kParams[kParamCount] = {
     { "Mute State",    "mute_state",   "",    0,     255,   0,       kFlagOutput | kFlagHidden },
     { "Clock Follow",  "clock_follow", "",    0,     1,     1,       kFlagBool | kFlagHidden },
     { "Clock Active",  "clock_active", "",    0,     1,     0,       kFlagOutput | kFlagHidden },
+    { "Link ID High",  "link_id_high", "",    0, 16383,     0,       kFlagOutput | kFlagHidden | kFlagInt },
+    { "Link ID Low",   "link_id_low",  "",    0, 16383,     0,       kFlagOutput | kFlagHidden | kFlagInt },
 };
 
 const Preset kPresets[kPresetCount] = { { "Standard" } };

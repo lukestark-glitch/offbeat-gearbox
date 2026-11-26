@@ -16,6 +16,7 @@
 #include "OffbeatKit.hpp"
 #include "Server.hpp"
 #include "Songs.hpp"
+#include "../src/link/OffbeatLink.hpp"
 
 START_NAMESPACE_DISTRHO
 
@@ -463,11 +464,11 @@ private:
     }
 
     // Kurzname für das SOUND-Feld: Kategorie abgekürzt, z. B. „Bass Rubber“
-    static std::string soundLabel(const TrackConf& c, int program)
+    static std::string soundLabel(int synth, int program)
     {
         if (program < 0)
             return "\xe2\x80\x93";
-        const char* n = soundName(c.synth, program);
+        const char* n = soundName(synth, program);
         std::string s = n ? n : "Prog " + std::to_string(program + 1);
         if (const size_t d = s.find(" - "); d != std::string::npos)
             s = s.substr(0, d) + " " + s.substr(d + 3);
@@ -478,24 +479,56 @@ private:
         return s;
     }
 
-    // SOUND: eine Liste aus „–“, allen Engine- und allen Topline-Presets; die Wahl legt auch den Synth der Spur fest
+    // Plugins an Spur t laut Offbeat Link (Bit 1 Engine, Bit 2 Topline); 0 = nichts erkannt → alle anbieten
+    int linkedMask(int t)
+    {
+        const uint32_t id = (uint32_t)values[kLinkIdHigh] << 14 | (uint32_t)values[kLinkIdLow];
+        if (!id)
+            return 0;
+        static link::Registry* reg = linkRegistry();
+        int mask = 0;
+        if (link::linkedChannel(reg, id, (uint32_t)t, link::kEngine) >= 0) mask |= 2;
+        if (link::linkedChannel(reg, id, (uint32_t)t, link::kTopline) >= 0) mask |= 4;
+        return mask;
+    }
+
+    // SOUND: „–“ und die Presets der Plugins, die an der Spur hängen (Engine und/oder Topline); Plugin je Pattern
     void adjustSound(int t, int dir)
     {
         TrackConf& c = model.tracks[t];
-        int& prog = model.patterns[editPattern()].tracks[t].program;
-        const int total = 1 + kEngineSoundCount + kToplineSoundCount;
-        int i = prog < 0 ? 0 : c.synth == 2 ? 1 + kEngineSoundCount + std::min(prog, kToplineSoundCount - 1)
-                                             : 1 + std::min(prog, kEngineSoundCount - 1);
-        i = (i + dir + total) % total;
-        if (i == 0)
-            prog = -1;
-        else if (i <= kEngineSoundCount)
-            c.synth = 1, prog = i - 1;
-        else
-            c.synth = 2, prog = i - 1 - kEngineSoundCount;
-        const char* n = soundName(c.synth, prog);
-        showStatus(std::string(c.name) + ": " + (n ? (c.synth == 1 ? "Engine \xc2\xb7 " : "Topline \xc2\xb7 ") + std::string(n) : "kein Sound-Wechsel"));
+        PatternTrack& pt = model.patterns[editPattern()].tracks[t];
+        int mask = linkedMask(t);
+        if (!(mask & 6))
+            mask = 6;
+        struct Option { int synth, program; };
+        std::vector<Option> opts { { 0, -1 } };
+        if (mask & 2)
+            for (int k = 0; k < kEngineSoundCount; ++k) opts.push_back({ 1, k });
+        if (mask & 4)
+            for (int k = 0; k < kToplineSoundCount; ++k) opts.push_back({ 2, k });
+        const int cur = activeSynth(c, pt);
+        int i = 0;
+        for (int k = 0; k < (int)opts.size(); ++k)
+            if (pt.program >= 0 && opts[k].synth == cur && opts[k].program == pt.program)
+                i = k;
+        i = (i + dir + (int)opts.size()) % (int)opts.size();
+        pt.program = opts[i].program;
+        pt.synth = opts[i].synth;
+        const char* n = soundName(pt.synth, pt.program);
+        showStatus(std::string(c.name) + ": " + (n ? (pt.synth == 1 ? "Engine \xc2\xb7 " : "Topline \xc2\xb7 ") + std::string(n) : "kein Sound-Wechsel"));
         sendSet();
+    }
+
+    // Name in der Zeile: Kategorie des Sounds, der in diesem Pattern spielt („Kick“, „Supersaw“ …), sonst der Spurname
+    std::string rowName(int t)
+    {
+        const TrackConf& c = model.tracks[t];
+        const PatternTrack& pt = model.patterns[editPattern()].tracks[t];
+        if (const char* n = pt.program >= 0 ? soundName(activeSynth(c, pt), pt.program) : nullptr) {
+            std::string s = n;
+            return s.substr(0, s.find(" - "));
+        }
+        return c.name;
     }
 
     void adjustField(int b, int dir)
@@ -557,7 +590,7 @@ private:
             textAlign(ALIGN_LEFT | ALIGN_MIDDLE);
             fontSize(12);
             fillColor(silent ? th.dim : th.text);
-            const std::string name = editName == t ? nameText + "|" : std::string(c.name);
+            const std::string name = editName == t ? nameText + "|" : rowName(t);
             text(x + 8, y + h / 2, name.c_str(), nullptr);
             x += kNameW + 6;
 
@@ -581,7 +614,7 @@ private:
             std::snprintf(v, sizeof(v), "%d%%", (int)std::lround(c.volume * 100));
             field(kBtnVolume + t, x, y, kFieldW, h, "VOL", v);
             x += kFieldW + 4;
-            field(kBtnSound + t, x, y, kSoundW, h, "SOUND", soundLabel(c, pt.program).c_str());
+            field(kBtnSound + t, x, y, kSoundW, h, "SOUND", soundLabel(activeSynth(c, pt), pt.program).c_str());
             x += kSoundW + 12;
 
             // Schritte der Seite

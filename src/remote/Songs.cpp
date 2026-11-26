@@ -112,11 +112,8 @@ bool loadSong(const std::string& name, std::string& json, std::string& err)
 }
 
 namespace {
-link::Registry* registry()
-{
-    static link::Registry* r = link::open();
-    return r;
-}
+
+link::Registry* registry() { return linkRegistry(); }
 
 const char* pluginName(uint32_t p)
 {
@@ -146,6 +143,12 @@ bool copyFile(const std::string& from, const std::string& to)
 }
 } // namespace
 
+link::Registry* linkRegistry()
+{
+    static link::Registry* r = link::open();
+    return r;
+}
+
 std::string withSounds(const std::string& setJson, const std::string& name, uint32_t linkId)
 {
     link::Registry* reg = registry();
@@ -153,10 +156,11 @@ std::string withSounds(const std::string& setJson, const std::string& name, uint
         return setJson;
     std::string list;
     std::unique_ptr<link::Entry> e(new link::Entry());
-    for (int t = 0; t < 8; ++t) {
-        const int i = link::find(reg->state, linkId, (uint32_t)t, false);
-        if (i < 0 || !link::read(reg->state[i], *e) || link::now() - e->stamp > 2.0 || !pluginName(e->plugin))
+    for (int i = 0; i < link::kSlots; ++i) { // alle Synths dieser Gearbox, auch mehrere pro Spur
+        if (reg->state[i].id != linkId || !link::read(reg->state[i], *e) || e->id != linkId || link::now() - e->stamp > 2.0
+            || !pluginName(e->plugin) || e->track >= 8)
             continue;
+        const int t = (int)e->track;
         std::string extra = e->extra;
         if (e->plugin == link::kHorn) { // Loops in den Song-Ordner kopieren, Pfade umschreiben
             const std::string dir = songDir() + "/" + name + " Loops";
@@ -218,7 +222,7 @@ int sendSounds(const std::string& songJson, uint32_t linkId)
         for (const JsonValue& f : v->arr)
             if (n < link::kMaxValues && f.type == JsonValue::Number)
                 values[n++] = (float)f.num;
-        const int i = link::find(reg->request, linkId, (uint32_t)track, true);
+        const int i = link::find(reg->request, linkId, (uint32_t)track, type, true);
         if (i < 0)
             continue;
         link::write(reg->request[i], linkId, (uint32_t)track, type, values.get(), n,

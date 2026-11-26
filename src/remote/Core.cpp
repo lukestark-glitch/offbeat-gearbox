@@ -1,8 +1,10 @@
 #include "Core.hpp"
 #include "Json.hpp"
 #include "Songs.hpp"
+#include "../link/OffbeatLink.hpp"
 
 #include <cstdio>
+#include <chrono>
 #include <random>
 #include <sstream>
 
@@ -26,10 +28,35 @@ Core::Core()
     current = new Set(shadow);
     for (auto& s : liveSteps)
         s = -1;
+    routeThread = std::thread([this] { routeLoop(); });
+}
+
+void Core::routeLoop()
+{
+    static const uint32_t kTypes[4] = { 0, link::kEngine, link::kTopline, link::kHorn };
+    while (!routeQuit.load()) {
+        link::Registry* reg = linkRegistry();
+        for (int t = 0; t < kTracks; ++t) {
+            int mask = 0;
+            for (int p = 1; p <= 3; ++p) {
+                const int ch = link::linkedChannel(reg, linkId, (uint32_t)t, kTypes[p]);
+                if (ch >= 0)
+                    mask |= 1 << p;
+                if (p <= 2)
+                    routing[t * 3 + p].store(ch >= 0 ? ch + 1 : 0, std::memory_order_relaxed);
+            }
+            linkedMask[t].store(mask, std::memory_order_relaxed);
+        }
+        for (int i = 0; i < 6 && !routeQuit.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
 }
 
 Core::~Core()
 {
+    routeQuit = true;
+    if (routeThread.joinable())
+        routeThread.join();
     server.setEnabled(false);
     delete pending.exchange(nullptr);
     delete garbage.exchange(nullptr);
@@ -186,6 +213,9 @@ std::string Core::remoteState()
     const std::vector<std::string> songs = listSongs();
     for (size_t i = 0; i < songs.size(); ++i)
         list += (i ? "," : "") + jsonQuote(songs[i]);
+    list += "],\"linked\":[";
+    for (int t = 0; t < kTracks; ++t)
+        list += (t ? "," : "") + std::to_string(linkedMask[t].load());
     j.insert(j.size() - 1, list + "]");
     return j;
 }

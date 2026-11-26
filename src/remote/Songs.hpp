@@ -19,4 +19,7 @@ std::string withSounds(const std::string& setJson, const std::string& name, uint
 // Schickt die Sounds eines geladenen Songs an die verbundenen Synths; Anzahl der Anfragen.
 int sendSounds(const std::string& songJson, uint32_t linkId);
 
+namespace link { struct Registry; }
+link::Registry* linkRegistry(); // gemeinsames Register (einmal geöffnet), nullptr = nicht verfügbar
+
 } // namespace offbeat
