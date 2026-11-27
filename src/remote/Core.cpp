@@ -201,8 +201,8 @@ std::string Core::remoteLive()
     n += std::snprintf(buf + n, sizeof(buf) - n, "],\"mutes\":[");
     for (int t = 0; t < kTracks; ++t)
         n += std::snprintf(buf + n, sizeof(buf) - n, "%s%d", t ? "," : "", (mutes >> t) & 1);
-    std::snprintf(buf + n, sizeof(buf) - n, "],\"loop\":%d,\"roll\":%d,\"revision\":%u}", liveLoop.load(), liveRoll.load(),
-                  rev.load()); // revision: Offbeat Performance holt dann /state neu
+    std::snprintf(buf + n, sizeof(buf) - n, "],\"loop\":%d,\"roll\":%d,\"revision\":%u,\"linkId\":%u}", liveLoop.load(),
+                  liveRoll.load(), rev.load(), linkId); // revision: Offbeat Performance holt dann /state neu; linkId: Beat FX
     return buf;
 }
 
