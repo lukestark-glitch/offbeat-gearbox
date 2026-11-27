@@ -295,6 +295,10 @@ function renderSong(){
   if(old)songDraft=old.value;
   L.innerHTML="";
   el("div","lbl","Songs",L);
+  var rb=el("button","","Liste aktualisieren",L); // neu gespeicherte oder kopierte Song-Dateien einlesen
+  rb.onclick=function(){
+    fetch("/state?pin="+pin).then(function(r){return r.json();}).then(function(j){model=j;renderSong();}).catch(function(){});
+  };
   var r=el("div","row",null,L),inp=el("input","",null,r);
   inp.type="text";inp.maxLength=48;inp.placeholder="Name";inp.value=songDraft;
   var sb=el("button","","Speichern",r);

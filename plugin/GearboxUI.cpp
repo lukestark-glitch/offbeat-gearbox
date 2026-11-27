@@ -36,7 +36,7 @@ enum Button {
     kBtnPasteGrid = 2805, kBtnClear = 2806, kBtnVelMode = 2807,
     kBtnChannel = 3000, kBtnNote = 3100, kBtnGate = 3200, kBtnVolume = 3300, kBtnSound = 3400, // + Spur
     kBtnOctDown = 4100, kBtnOctUp = 4101, kBtnRollBack = 4102, kBtnRollMute = 4103, kBtnRollSolo = 4104,
-    kBtnSongs = 4200, kBtnSongSave = 4201, kBtnChainOn = 4202, kBtnChainClear = 4203,
+    kBtnSongs = 4200, kBtnSongSave = 4201, kBtnChainOn = 4202, kBtnChainClear = 4203, kBtnSongRefresh = 4204,
     kBtnSongLoad = 4300,  // + Index in der Song-Liste
     kBtnChainAdd = 4400,  // + Pattern
     kBtnChainDown = 4500, kBtnChainUp = 4600, kBtnChainDel = 4700, // + Eintrag
@@ -313,6 +313,10 @@ protected:
             songView = !songView;
             if (songView)
                 songs = listSongs();
+            redraw();
+        } else if (b == kBtnSongRefresh) { // Ordner neu einlesen (z. B. Songs vom iPad oder von Hand kopiert)
+            songs = listSongs();
+            showStatus(std::to_string(songs.size()) + " Songs");
             redraw();
         } else if (b == kBtnSongSave) {
             if (validSongName(songText)) { // der DSP speichert (mit den Sounds der verbundenen Synths)
@@ -704,6 +708,7 @@ private:
         fillColor(songText.empty() ? th.dim : th.text);
         text(px + 24, top + 15, songText.empty() ? "Name tippen, Enter speichert" : (songText + "|").c_str(), nullptr);
         pill(kBtnSongSave, px + colW - 96, top, 96, 30, "Speichern", th.brand, false);
+        pill(kBtnSongRefresh, px + colW - 150, top + 36, 150, 20, "Liste aktualisieren", th.brand, false);
         fontSize(11);
         fillColor(th.dim);
         text(px + 14, top + 46, songs.empty() ? "Noch keine Songs in ~/Music/Offbeat Gearbox" : "Klick l\xc3\xa4" "dt (sofort):", nullptr);
