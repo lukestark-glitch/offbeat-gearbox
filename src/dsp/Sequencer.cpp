@@ -119,10 +119,30 @@ int Sequencer::chainWant(int64_t g) const
     return p < 0 ? (int)params[kPattern] : p;
 }
 
+int Sequencer::windowLen() const
+{
+    const int roll = (int)params[kRollSteps], bars = (int)params[kLoopBars];
+    if (roll >= 1) // Roll hat Vorrang: 1, 2 oder 4 Schritte
+        return roll >= 4 ? 4 : roll >= 2 ? 2 : 1;
+    if (bars >= 1)
+        return (bars >= 8 ? 8 : bars >= 4 ? 4 : bars >= 2 ? 2 : 1) * kBarSteps;
+    return 0;
+}
+
 void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t frames, MidiOut* out, int& n, int max)
 {
     if (!set)
         return;
+    // Loop/Roll: Fenster bei Änderung neu setzen (Loop am Raster seiner Länge, Roll ab diesem Schritt)
+    const int wantLen = windowLen();
+    if (wantLen != winLen) {
+        winLen = wantLen;
+        winStart = params[kRollSteps] >= 1 ? g : (int64_t)std::floor((double)g / wantLen) * wantLen;
+        std::fill(tieHold, tieHold + kTracks, false);
+    }
+    if (winLen > 0 && g > winStart && (g - winStart) % winLen == 0) // Fenster springt zurück: Ties nicht über die Naht
+        std::fill(tieHold, tieHold + kTracks, false);
+    const int64_t ge = winLen > 0 && g >= winStart ? winStart + (g - winStart) % winLen : g; // gespielte Position
     if (g % kBarSteps == 0) { // Taktanfang: angefordertes Pattern übernehmen
         const int want = chainActive ? chainWant(g) : (int)params[kPattern];
         if (want != playingPattern) {
@@ -138,7 +158,7 @@ void Sequencer::fireStep(int64_t g, double t, double b0, double bpf, uint32_t fr
     for (int tr = 0; tr < kTracks; ++tr) {
         const TrackConf& c = set->tracks[tr];
         const PatternTrack& pt = set->patterns[playingPattern].tracks[tr];
-        const int s = (int)(((g - patternStart) % pt.length + pt.length) % pt.length);
+        const int s = (int)(((ge - patternStart) % pt.length + pt.length) % pt.length);
         params[kStep1 + tr] = (float)s;
         const uint8_t ch = (uint8_t)(channelOf(tr, c, pt) - 1);
         if (pt.program >= 0 && (pt.program | ch << 8) != sentProgram[tr]) { // Sound wechseln, vor den Noten dieses Schritts
@@ -264,6 +284,7 @@ int Sequencer::process(uint32_t frames, MidiOut* out, int max)
         const int64_t g0 = (int64_t)std::ceil(b0 / kStep - 1e-9);
         lastFired = g0 - 1;
         patternStart = (int64_t)std::floor((double)g0 / kBarSteps) * kBarSteps;
+        winLen = 0; // Loop/Roll beim Start neu ausrichten
         playingPattern = (int)params[kPattern]; // Start: gewähltes Pattern sofort
         chainActive = set && set->chainOn && set->chainLen > 0;
         chainStart = patternStart;

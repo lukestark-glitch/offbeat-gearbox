@@ -28,6 +28,8 @@ enum ParamId {
     kClockActive, // Anzeige: Takt von Clutch wird gerade verwendet (versteckt)
     kLinkIdHigh,  // Anzeige: Offbeat-Link-Kennung, obere 14 Bit (für die Oberfläche, versteckt)
     kLinkIdLow,   // Anzeige: untere 14 Bit
+    kLoopBars,    // Loop (Slip): 0 aus, 1/2/4/8 Takte wiederholen, die Zeit läuft darunter weiter (versteckt)
+    kRollSteps,   // Roll (Slip): 0 aus, 1/2/4 Schritte (1/16, 1/8, 1/4 Schlag) wiederholen; hat Vorrang vor Loop
     kParamCount
 };
 

@@ -185,6 +185,8 @@ void Core::publishLive(const float* p, double bpm)
     liveMutes = mutes;
     liveBpm = (float)bpm;
     liveSwing = p[kSwing];
+    liveLoop = (int)p[kLoopBars];
+    liveRoll = (int)p[kRollSteps];
 }
 
 std::string Core::remoteLive()
@@ -199,7 +201,8 @@ std::string Core::remoteLive()
     n += std::snprintf(buf + n, sizeof(buf) - n, "],\"mutes\":[");
     for (int t = 0; t < kTracks; ++t)
         n += std::snprintf(buf + n, sizeof(buf) - n, "%s%d", t ? "," : "", (mutes >> t) & 1);
-    std::snprintf(buf + n, sizeof(buf) - n, "],\"revision\":%u}", rev.load()); // Offbeat Performance: /state neu holen
+    std::snprintf(buf + n, sizeof(buf) - n, "],\"loop\":%d,\"roll\":%d,\"revision\":%u}", liveLoop.load(), liveRoll.load(),
+                  rev.load()); // revision: Offbeat Performance holt dann /state neu
     return buf;
 }
 

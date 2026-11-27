@@ -395,6 +395,16 @@ CommandResult applyCommand(Set& s, const std::string& line, int& paramId, float&
         paramValue = x >= 0.5 ? 1.0f : 0.0f;
         return CommandResult::Param;
     }
+    if (cmd == "loop" || cmd == "roll") { // loop 0|1|2|4|8 (Takte), roll 0|1|2|4 (Schritte)
+        int v;
+        if (!(in >> v) || v < 0 || v > (cmd == "loop" ? 8 : 4) || (v & (v - 1))) {
+            err = cmd == "loop" ? "loop 0|1|2|4|8" : "roll 0|1|2|4";
+            return CommandResult::Error;
+        }
+        paramId = cmd == "loop" ? kLoopBars : kRollSteps;
+        paramValue = (float)v;
+        return CommandResult::Param;
+    }
     const struct { const char* name; int id; } kParamCmds[] = {
         { "pattern", kPattern }, { "play", kPlay }, { "fill", kFill }, { "swing", kSwing }, { "bpm", kBpm },
     };

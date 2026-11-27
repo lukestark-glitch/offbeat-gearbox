@@ -122,7 +122,12 @@ protected:
                 stroke();
             }
         }
-        pill(kBtnFill, kMargin + 474, ty, 70, 30, "Fill", th.brand, values[kFill] >= 0.5f);
+        char fillLabel[16] = "Fill"; // Loop/Roll (vom FLX4 oder Offbeat Performance) hier anzeigen
+        if (values[kRollSteps] >= 1)
+            std::snprintf(fillLabel, sizeof(fillLabel), "ROLL %d", (int)values[kRollSteps]);
+        else if (values[kLoopBars] >= 1)
+            std::snprintf(fillLabel, sizeof(fillLabel), "LOOP %d", (int)values[kLoopBars]);
+        pill(kBtnFill, kMargin + 474, ty, 70, 30, fillLabel, th.brand, values[kFill] >= 0.5f || values[kLoopBars] >= 1 || values[kRollSteps] >= 1);
         pill(kBtnVelMode, kMargin + 552, ty, 90, 30, "ST\xc3\x84RKE", th.light, velMode);
         compact(kSwing, kMargin + 656, ty - 6, 110, th.brand);
         compact(kBpm, kMargin + 776, ty - 6, 110, th.brand);

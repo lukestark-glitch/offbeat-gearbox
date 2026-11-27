@@ -61,6 +61,7 @@ private:
     std::atomic<bool> livePlaying { false }, liveFill { false };
     std::atomic<int> livePattern { 0 }, liveQueued { 0 }, liveSteps[kTracks], liveMutes { 0 };
     std::atomic<float> liveBpm { 160.0f }, liveSwing { 0.0f };
+    std::atomic<int> liveLoop { 0 }, liveRoll { 0 };
 
 public:
 public:

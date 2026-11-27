@@ -73,6 +73,10 @@ private:
     int64_t chainStart = 0;     // Schritt, an dem der Ablauf begann (Taktanfang)
     float lastPatternParam = 0; // erkennt Pattern-Knöpfe während des Ablaufs
     int chainWant(int64_t g) const;
+    // Loop/Roll (Slip): Fenster in echten Schritten; der echte Zähler läuft weiter, gespielt wird winStart + (g − winStart) mod winLen
+    int64_t winStart = 0;
+    int winLen = 0;
+    int windowLen() const;
     int channelOf(int tr, const TrackConf& c, const PatternTrack& pt) const;
     const std::atomic<int>* routing = nullptr; // zuletzt gesendeter Program Change je Spur (-1 = noch keiner)
     int playingPattern = 0;

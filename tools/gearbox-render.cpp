@@ -337,6 +337,95 @@ int checkAll()
         expect("erkannter Kanal (Link) hat Vorrang", onsOf(r.events, 7).size() == 1 && onsOf(r.events, 13).empty());
     }
 
+    std::puts("== Loop und Roll (Slip): Fenster wiederholen, Zeit läuft darunter weiter");
+    {
+        auto kicksAt = [](const Sim& sim, double from, double to) {
+            std::vector<double> b;
+            for (const Ev& e : onsOf(sim.events, 1))
+                if (e.sample >= sampleOf(from, 160, sim.sr) && e.sample < sampleOf(to, 160, sim.sr))
+                    b.push_back(e.sample * 160.0 / 60.0 / sim.sr);
+            return b;
+        };
+        auto near = [](const std::vector<double>& got, std::vector<double> want) {
+            if (got.size() != want.size())
+                return false;
+            for (size_t i = 0; i < got.size(); ++i)
+                if (std::fabs(got[i] - want[i]) > 1e-3)
+                    return false;
+            return true;
+        };
+        { // 1 Takt Loop auf einem 2-Takt-Pattern, nach dem Ausschalten an der echten Position weiter
+            Sim sim;
+            sim.cmd("clear 0 0");
+            sim.cmd("length 0 0 32");
+            sim.cmd("step 0 0 0 3");
+            sim.cmd("step 0 0 6 3");
+            sim.cmd("step 0 0 19 3");
+            bool on = false, off = false;
+            sim.run(160, 5.5, true, [&](int64_t, double& beat) { // 14,7 Schläge
+                if (beat >= 1.0 && !on) sim.cmd("loop 1"), on = true;
+                if (beat >= 11.0 && !off) sim.cmd("loop 0"), off = true; // Takt 3, Schlag 4
+            });
+            expect("Loop 1 Takt: Takt 1 wiederholt (Kick auf 0/1,5 in jedem Takt statt Takt 2)",
+                   near(kicksAt(sim, 0, 12), { 0, 1.5, 4, 5.5, 8, 9.5 }));
+            expect("Loop aus: weiter an der echten Position (Takt 4 = Pattern-Takt 2, Schritt 19 → Schlag 12,75)", near(kicksAt(sim, 11, 14.5), { 12.75 }));
+        }
+        { // Roll 2 Schritte ab Schlag 1: Kick auf Schritt 4 wird jede 1/8 wiederholt
+            Sim sim;
+            sim.cmd("clear 0 0");
+            sim.cmd("step 0 0 4 3");
+            bool on = false, off = false;
+            sim.run(160, 1.5, true, [&](int64_t, double& beat) { // 4 Schläge
+                if (beat >= 0.9 && !on) sim.cmd("roll 2"), on = true;
+                if (beat >= 2.9 && !off) sim.cmd("roll 0"), off = true;
+            });
+            expect("Roll 2 Schritte: Kick alle 1/8 von Schlag 1 bis 3, danach normal", near(kicksAt(sim, 0, 4), { 1, 1.5, 2, 2.5 }));
+        }
+        { // Ablauf läuft unter dem Loop weiter: A (Kick Schritt 0) / B (Kick Schritt 8) je 1 Takt
+            Sim sim;
+            sim.cmd("clear 0 0");
+            sim.cmd("clear 1");
+            sim.cmd("step 0 0 0 3");
+            sim.cmd("step 1 0 8 3");
+            sim.cmd("chain add 0 1");
+            sim.cmd("chain add 1 1");
+            sim.cmd("chain on 1");
+            bool on = false;
+            sim.run(160, 6.0, true, [&](int64_t, double& beat) {
+                if (beat >= 0.5 && !on) sim.cmd("loop 1"), on = true;
+            });
+            expect("Ablauf läuft darunter weiter: Takt 2 spielt B (Schlag 6), Takt 3 wieder A (Schlag 8)",
+                   near(kicksAt(sim, 0, 12), { 0, 6, 8 }));
+        }
+        { // keine hängenden Noten bei wildem Umschalten (mit Ties und Melodie)
+            Sim sim;
+            sim.cmd("tie 0 1 2 1");
+            sim.cmd("tie 0 1 3 1");
+            sim.cmd("gate 4 0.95");
+            uint32_t rnd = 777;
+            auto next = [&] { rnd = rnd * 1664525u + 1013904223u; return rnd >> 8; };
+            static const int kLoops[5] = { 0, 1, 2, 4, 8 }, kRolls[4] = { 0, 1, 2, 4 };
+            sim.run(165, 20.0, true, [&](int64_t pos, double&) {
+                if (pos % (512 * 11) == 0) {
+                    char c[24];
+                    if (next() % 2) std::snprintf(c, sizeof(c), "loop %d", kLoops[next() % 5]);
+                    else std::snprintf(c, sizeof(c), "roll %d", kRolls[next() % 4]);
+                    sim.cmd(c);
+                }
+            });
+            sim.run(165, 0.1, false);
+            int hanging = 0;
+            expect("keine hängenden Noten bei zufälligem Loop/Roll", noHanging(sim.events, hanging));
+        }
+        Set s;
+        defaultSet(s);
+        int id;
+        float v;
+        std::string err;
+        expect("loop 3 / roll 8 werden abgelehnt", applyCommand(s, "loop 3", id, v, err) == CommandResult::Error
+                                                     && applyCommand(s, "roll 8", id, v, err) == CommandResult::Error);
+    }
+
     std::puts("== Polymetrik: Spur mit 3 Schritten gegen 16");
     {
         Sim sim;

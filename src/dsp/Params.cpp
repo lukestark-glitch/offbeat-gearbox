@@ -42,6 +42,8 @@ const ParamInfo kParams[kParamCount] = {
     { "Clock Active",  "clock_active", "",    0,     1,     0,       kFlagOutput | kFlagHidden },
     { "Link ID High",  "link_id_high", "",    0, 16383,     0,       kFlagOutput | kFlagHidden | kFlagInt },
     { "Link ID Low",   "link_id_low",  "",    0, 16383,     0,       kFlagOutput | kFlagHidden | kFlagInt },
+    { "Loop Bars",     "loop_bars",    "",    0,     8,     0,       kFlagHidden | kFlagInt },
+    { "Roll Steps",    "roll_steps",   "",    0,     4,     0,       kFlagHidden | kFlagInt },
 };
 
 const Preset kPresets[kPresetCount] = { { "Standard" } };
